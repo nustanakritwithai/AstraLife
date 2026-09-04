@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "astra-colony.communication.v1",
+  "title": "ASTRA COLONY Social Communication Protocol v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "id", "from", "to", "intent", "tick", "urgency", "text", "replyTo", "facts"],
+  "properties": {
+    "protocol": {"const": "astra-colony.communication.v1"},
+    "id": {"type": "integer", "minimum": 1},
+    "from": {"type": "integer", "minimum": 1},
+    "to": {"type": "integer", "minimum": 1},
+    "intent": {"enum": ["ASK", "REPORT", "REQUEST_HELP", "OFFER", "WARN", "SYNC"]},
+    "tick": {"type": "integer", "minimum": 0},
+    "urgency": {"type": "number", "minimum": 0, "maximum": 1},
+    "text": {"type": "string", "maxLength": 180},
+    "replyTo": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
+    "facts": {"type": "array", "maxItems": 5}
+  },
+  "semantics": {
+    "ASK": "Ask nearby peers for missing knowledge.",
+    "REPORT": "Transmit factual claims which may later be verified or disproved.",
+    "REQUEST_HELP": "Request urgent survival assistance.",
+    "OFFER": "Offer useful information or role-based assistance.",
+    "WARN": "Broadcast a high-urgency environmental or safety warning.",
+    "SYNC": "Low-priority belief synchronization."
+  },
+  "trustRule": "Relayed claims are weighted by receiver trust and speaker credibility. Direct observation can verify or disprove claims, changing receiver trust and speaker reputation."
+}
