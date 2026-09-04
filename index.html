@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>ASTRA COLONY V0.4 — Social Protocol, Trust & Reputation</title>
+<title>ASTRA COLONY V0.5.1 — Core Architecture Hardening</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
 <header>
-  <h1>ASTRA COLONY V0.4 · SOCIAL PROTOCOL + TRUST</h1>
+  <h1>ASTRA COLONY V0.5.1 · CORE ARCHITECTURE HARDENING</h1>
   <button id="toggle" class="primary">⏸ หยุด</button>
   <button id="stepBtn">⏭ 1 Tick</button>
   <button id="addBtn">+20 Agents</button>
@@ -150,7 +150,7 @@
   </div>
 </div>
 
-<div id="tip">V0.4: Agents คุยด้วย ASK / REPORT / REQUEST_HELP / OFFER / WARN · ความน่าเชื่อถือเปลี่ยนตามข้อมูลที่ตรวจสอบได้จริง</div>
+<div id="tip">V0.5.1: Provider proposes → Validator accepts/rejects → Resolver mutates WorldState · each Astra keeps an independent persistent identity/session.</div>
 </main>
 </div>
 
@@ -168,5 +168,10 @@
 <script src="js/12-bridge-example.js"></script>
 <script src="js/13-ui-contract-api.js"></script>
 <script src="js/14-emergent-roles-v05.js"></script>
+<script src="js/core/contracts-v051.js"></script>
+<script src="js/core/agent-state-v051.js"></script>
+<script src="js/core/decision-staging-v051.js"></script>
+<script src="js/core/world-state-v051.js"></script>
+<script src="js/15-core-hardening-v051.js"></script>
 </body>
 </html>
