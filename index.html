@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ASTRA COLONY V0.4 — Social Protocol, Trust & Reputation</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+<header>
+  <h1>ASTRA COLONY V0.4 · SOCIAL PROTOCOL + TRUST</h1>
+  <button id="toggle" class="primary">⏸ หยุด</button>
+  <button id="stepBtn">⏭ 1 Tick</button>
+  <button id="addBtn">+20 Agents</button>
+  <button id="stormBtn" class="danger">⚡ พายุ</button>
+  <button id="rumorBtn">🎭 ข่าวลือ</button>
+  <button id="resetBtn">↻ โลกใหม่</button>
+  <select id="speedSelect" aria-label="ความเร็ว">
+    <option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option>
+  </select>
+  <input id="seedInput" value="ASTRA-2026" aria-label="World seed">
+  <button id="applySeedBtn">ใช้ Seed</button>
+  <select id="providerSelect" class="provider-select" aria-label="Decision provider">
+    <option value="local">Local deterministic brain</option>
+    <option value="astra-sim">Astra-compatible simulator</option>
+    <option value="hybrid">Hybrid · Astra-sim 20%</option>
+    <option value="remote">Astra HTTP Bridge</option>
+  </select>
+  <input id="endpointInput" value="" placeholder="http://localhost:8787/decide" aria-label="Provider endpoint">
+  <button id="contractBtn">&lt;/&gt; Contract</button>
+  <button id="exportBtn">⇩ Snapshot</button>
+  <span id="providerBadge" class="provider-badge"><i></i><span>LOCAL · contract v1</span></span>
+</header>
+
+<main>
+<canvas id="world"></canvas>
+
+<div id="hud">
+  <div class="card">
+    <div class="stats">
+      <div class="stat"><b id="alive">0</b><span>Alive</span></div>
+      <div class="stat"><b id="day">1</b><span>Day</span></div>
+      <div class="stat"><b id="tick">0</b><span>Tick</span></div>
+      <div class="stat"><b id="food">0</b><span>Food</span></div>
+      <div class="stat"><b id="water">0</b><span>Water</span></div>
+      <div class="stat"><b id="wood">0</b><span>Wood</span></div>
+      <div class="stat"><b id="shelter">0</b><span>Shelter</span></div>
+      <div class="stat"><b id="knowledge">0</b><span>Known facts</span></div>
+      <div class="stat"><b id="coop">0%</b><span>Cooperation</span></div>
+      <div class="stat"><b id="queued">0</b><span>Actions/tick</span></div>
+      <div class="stat"><b id="failures">0</b><span>Failed actions</span></div>
+      <div class="stat"><b id="providerCalls">0</b><span>Provider calls</span></div>
+      <div class="stat"><b id="invalidDecisions">0</b><span>Rejected decisions</span></div>
+      <div class="stat"><b id="fallbacks">0</b><span>Fallbacks</span></div>
+      <div class="stat"><b id="pending">0</b><span>Pending remote</span></div>
+      <div class="stat"><b id="obsErrors">0</b><span>Observation errors</span></div>
+      <div class="stat"><b id="messagesSent">0</b><span>Social messages</span></div>
+      <div class="stat"><b id="verifiedClaims">0</b><span>Verified claims</span></div>
+      <div class="stat"><b id="avgCredibility">0%</b><span>Credibility</span></div>
+      <div class="stat"><b id="integrity" class="ok">PASS</b><span>Integrity</span></div>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:#7fdcff"></i>Scout</span>
+      <span><i class="dot" style="background:#a9f58c"></i>Gatherer</span>
+      <span><i class="dot" style="background:#ffd36a"></i>Builder</span>
+      <span><i class="dot" style="background:#ff9cae"></i>Healer</span>
+      <span><i class="dot" style="background:#c6a4ff"></i>Carrier</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="runtime-head">
+      <b>Deterministic Tick Pipeline</b>
+      <span id="runtimeMeta">seed · phase</span>
+    </div>
+    <div class="pipeline">
+      <div class="stage" data-stage="ENVIRONMENT">1 ENV</div>
+      <div class="stage" data-stage="OBSERVE">2 OBSERVE</div>
+      <div class="stage" data-stage="REQUEST">3 REQUEST</div>
+      <div class="stage" data-stage="PROVIDER">4 PROVIDER</div>
+      <div class="stage" data-stage="VALIDATE">5 VALIDATE</div>
+      <div class="stage" data-stage="RESOLVE">6 RESOLVE</div>
+      <div class="stage" data-stage="LEARN">7 LEARN</div>
+      <div class="stage" data-stage="COMMIT">8 COMMIT</div>
+    </div>
+  </div>
+
+  <div class="card" id="eventLog"></div>
+</div>
+
+<div id="inspector" class="card">
+  <h3 id="iname"></h3>
+  <div id="imeta" class="small"></div>
+  <div class="small">HP</div><div class="bar"><i id="bhp"></i></div>
+  <div class="small">Hunger safety</div><div class="bar"><i id="bhunger"></i></div>
+  <div class="small">Thirst safety</div><div class="bar"><i id="bthirst"></i></div>
+  <div class="small">Energy</div><div class="bar"><i id="benergy"></i></div>
+
+  <div class="section-title">Cognitive state</div>
+  <div id="igoal" class="wm"></div>
+
+  <div class="section-title">Provider session & validation</div>
+  <div id="iprovider" class="wm"></div>
+
+  <div class="section-title">Latest decision request</div>
+  <div id="irequest" class="wm"></div>
+
+  <div class="section-title">Latest provider response</div>
+  <div id="iresponse" class="wm"></div>
+
+  <div class="section-title">Latest immutable observation</div>
+  <div id="iobs" class="wm"></div>
+
+  <div class="section-title">Trust & reputation</div>
+  <div id="isocial" class="wm"></div>
+
+  <div class="section-title">Symbolic world model</div>
+  <div id="iwm" class="wm"></div>
+
+  <div class="section-title">Memory</div>
+  <div id="imem" class="wm"></div>
+
+  <div class="section-title">Runtime trace</div>
+  <div id="itrace" class="trace"></div>
+</div>
+
+<div id="contractModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="contractTitle">
+  <div class="modal">
+    <div class="modal-head"><h2 id="contractTitle">ASTRA COLONY · Provider + Social Contract v1</h2><button id="contractClose">✕ ปิด</button></div>
+    <div class="modal-tools">
+      <select id="contractView">
+        <option value="bundle">Contract bundle</option>
+        <option value="observation">Observation schema</option>
+        <option value="request">Decision request schema</option>
+        <option value="response">Decision response schema</option>
+        <option value="action">Action schema</option>
+        <option value="communication">Communication schema</option>
+        <option value="latest">Latest selected-agent request</option>
+        <option value="server">Node bridge example</option>
+      </select>
+      <span class="pill">ทุก Agent ใช้ sessionId แยกกัน</span>
+      <span class="pill">Provider ไม่มีสิทธิ์แก้ World State</span>
+    </div>
+    <div class="modal-body"><pre id="contractContent"></pre></div>
+    <div class="modal-foot">
+      <span id="contractStatus">Strict JSON + Social contract · ASK/REPORT/REQUEST_HELP/OFFER/WARN · claims update Trust after verification</span>
+      <div class="modal-actions"><button id="copyContractBtn">คัดลอก</button><button id="downloadContractBtn">⇩ ดาวน์โหลด Contract</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="tip">V0.4: Agents คุยด้วย ASK / REPORT / REQUEST_HELP / OFFER / WARN · ความน่าเชื่อถือเปลี่ยนตามข้อมูลที่ตรวจสอบได้จริง</div>
+</main>
+</div>
+
+<script src="app-part1.js"></script>
+<script src="app-part2.js"></script>
+<script src="app-part3.js"></script>
+<script src="app-part4.js"></script>
+</body>
+</html>
