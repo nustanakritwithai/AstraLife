@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "astra-colony.agent-development.v1",
+  "title": "AstraLife Agent Development Contract",
+  "type": "object",
+  "required": ["role", "emergentRole", "skills", "preferences", "domainReputation"],
+  "properties": {
+    "role": { "const": "human" },
+    "emergentRole": {
+      "enum": ["generalist", "scout", "gatherer", "builder", "healer", "carrier", "coordinator"]
+    },
+    "skills": { "type": "object" },
+    "preferences": { "type": "object" },
+    "domainReputation": { "type": "object" }
+  },
+  "rule": "All agents spawn as Human/generalist. EmergentRole is derived from learned competency, preference, experience, and domain reputation; it is never assigned at spawn."
+}
