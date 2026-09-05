@@ -11,6 +11,14 @@
     exactStormRemaining:false
   });
 
+  const oldCapture=ObservationSystem.prototype.capture;
+  ObservationSystem.prototype.capture=function(state,agent){
+    const obs=cloneJson(oldCapture.call(this,state,agent));
+    obs.environment.stormTicks=null;
+    obs.environment.stormBand=obs.environment.stormActive?"ACTIVE":"CLEAR";
+    return deepFreeze(obs);
+  };
+
   const oldBuild=DecisionRequestFactory.prototype.build;
   DecisionRequestFactory.prototype.build=function(state,agent,observation,providerHint){
     const request=cloneJson(oldBuild.call(this,state,agent,observation,providerHint));
