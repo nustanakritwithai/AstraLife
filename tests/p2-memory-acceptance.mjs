@@ -49,10 +49,14 @@ const result=await page.evaluate(()=>{
   const savedBelief=saved.beliefs.find(b=>b.key==='save:test');
   const savedMemory=saved.memory.find(e=>e.lesson==='restore structured memory');
   const beforeSession=saved.providerSession.sessionId;
-  A.mind.memory=[];A.mind.beliefs?.clear();A.mind.evidence?.clear();A.social.trust.clear();A.runtime.providerSessionId='mutated-session';
+  A.mind.memory=[];A.mind.beliefs?.clear();A.mind.evidence?.clear();A.mind.facts.clear();A.social.trust.clear();A.runtime.providerSessionId='mutated-session';
   const restored=AstraLifeP2.restorePersistent(A.id,saved);
   const after=AgentStateBoundaryV051.persistent(A);
-  const save01=restored.ok&&after.agentId===saved.agentId&&after.identity.id===saved.identity.id&&after.providerSession.sessionId===beforeSession&&after.memory.some(e=>e.episodeId===savedMemory?.episodeId&&e.evidenceIds.includes('ev:save:200'))&&after.beliefs.some(b=>b.beliefId===savedBelief?.beliefId)&&Array.isArray(after.evidence);
+  const restoredFact=A.mind.facts.get('save:test');
+  const restoreObs=runtime.observer.capture(runtime.state,A);
+  const restoreReq=runtime.requestFactory.build(runtime.state,A,restoreObs,'local');
+  const plannerSeesRestoredBelief=restoreReq.memory.symbolicFacts.some(f=>f.key==='save:test'&&f.value?.value==='persist-me');
+  const save01=restored.ok&&after.agentId===saved.agentId&&after.identity.id===saved.identity.id&&after.providerSession.sessionId===beforeSession&&after.memory.some(e=>e.episodeId===savedMemory?.episodeId&&e.evidenceIds.includes('ev:save:200'))&&after.beliefs.some(b=>b.beliefId===savedBelief?.beliefId)&&Array.isArray(after.evidence)&&restoredFact?.value?.value==='persist-me'&&plannerSeesRestoredBelief;
 
   // Inspector contract: memory is structured and UI renders without chain-of-thought claims.
   runtime.selectedAgentId=A.id;updateInspector();
@@ -62,7 +66,7 @@ const result=await page.evaluate(()=>{
   // Restore original fixture to avoid contaminating integrity check.
   AstraLifeP2.restorePersistent(A.id,original);
 
-  const tests={legacyMigrationSafe,unknownTimeStableAcrossRemigration,unknownTimeStableAcrossRestore,MEM01_compactionRetainsLessonProvenance:mem01,retrievalBoundedAndRelevant:retrievalBounded,SAVE01_persistentRestorePreservesStructuredState:save01,inspectorShowsStructuredMemoryWithoutCoT:inspectorStructured,P0IntegrityStillPasses:runtime.selfTest().ok};
+  const tests={legacyMigrationSafe,unknownTimeStableAcrossRemigration,unknownTimeStableAcrossRestore,MEM01_compactionRetainsLessonProvenance:mem01,retrievalBoundedAndRelevant:retrievalBounded,SAVE01_persistentRestorePreservesStructuredState:save01,plannerSeesRestoredBelief,inspectorShowsStructuredMemoryWithoutCoT:inspectorStructured,P0IntegrityStillPasses:runtime.selfTest().ok};
   return {ok:Object.values(tests).every(Boolean),tests,compactedCount:compacted.length,retrievalTokens:retrieval.estimatedTokens,savedMemorySchema:saved.memorySchemaVersion,restored};
 });
 console.log(JSON.stringify(result,null,2));
