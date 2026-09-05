@@ -21,14 +21,14 @@
   };
   const finiteTick=value=>value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?Number(value):null;
   function normalizeEpisode(a,input,index=0){
-    const legacy=!(input&&input.episodeId);
+    const legacy=input?.legacy===true||!(input&&input.episodeId);
     const observed=finiteTick(input?.observedTick);
     const fallback=finiteTick(input?.tick);
     const tick=observed!=null?observed:fallback;
     const event=String(input?.event??input?.text??"legacy memory");
     const context=cloneJson(input?.context||{});
     if(!context.kind)context.kind=input?.kind||"legacy";
-    if(!context.source)context.source=legacy?UNKNOWN:UNKNOWN;
+    if(!context.source)context.source=UNKNOWN;
     if(context.timeKnown==null)context.timeKnown=tick!=null;
     return Object.freeze({
       episodeId:input?.episodeId||idFor(a,tick??0,event,index),
