@@ -19,10 +19,17 @@
     if(kind==="learning"||kind==="belief-revision"||kind==="social-learning")return text;
     return null;
   };
+  const finiteTick=value=>value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?Number(value):null;
   function normalizeEpisode(a,input,index=0){
     const legacy=!(input&&input.episodeId);
-    const tick=Number.isFinite(Number(input?.observedTick))?Number(input.observedTick):Number.isFinite(Number(input?.tick))?Number(input.tick):null;
+    const observed=finiteTick(input?.observedTick);
+    const fallback=finiteTick(input?.tick);
+    const tick=observed!=null?observed:fallback;
     const event=String(input?.event??input?.text??"legacy memory");
+    const context=cloneJson(input?.context||{});
+    if(!context.kind)context.kind=input?.kind||"legacy";
+    if(!context.source)context.source=legacy?UNKNOWN:UNKNOWN;
+    if(context.timeKnown==null)context.timeKnown=tick!=null;
     return Object.freeze({
       episodeId:input?.episodeId||idFor(a,tick??0,event,index),
       observedTick:tick,
@@ -30,9 +37,9 @@
       action:input?.action??null,
       perceivedOutcome:input?.perceivedOutcome??null,
       evidenceIds:Array.isArray(input?.evidenceIds)?[...new Set(input.evidenceIds.filter(Boolean))]:[],
-      importance:clamp(Number(input?.importance??importanceFor(input?.kind||"episode")),0,1),
-      lesson:input?.lesson??lessonFor(event,input?.kind||"episode"),
-      context:cloneJson(input?.context||{kind:input?.kind||"legacy",source:legacy?UNKNOWN:(input?.context?.source||UNKNOWN),timeKnown:tick!=null}),
+      importance:clamp(Number(input?.importance??importanceFor(input?.kind||context.kind||"episode")),0,1),
+      lesson:input?.lesson??lessonFor(event,input?.kind||context.kind||"episode"),
+      context,
       legacy,
       sourceKnown:legacy?false:input?.sourceKnown!==false
     });
@@ -71,7 +78,7 @@
         evidenceIds,
         importance:Math.max(.72,...old.map(e=>e.importance||0)),
         lesson:lessons.join(" | ")||"historical episode summary",
-        context:{kind:"compact",range:{startTick:start,endTick:end},applicability,exceptions,compactedEpisodeIds},
+        context:{kind:"compact",source:"runtime",timeKnown:end!=null,range:{startTick:start,endTick:end},applicability,exceptions,compactedEpisodeIds},
         legacy:false,
         sourceKnown:old.every(e=>e.sourceKnown!==false)
       });
@@ -115,7 +122,7 @@
 
   MemorySystem.prototype.remember=function(a,text,kind="episode",meta={}){
     ensure(a);migrateAgent(a);const tick=this.tickOf(a);
-    const episode=normalizeEpisode(a,{observedTick:tick,event:text,action:meta.action??null,perceivedOutcome:meta.perceivedOutcome??null,evidenceIds:meta.evidenceIds||[],importance:meta.importance??importanceFor(kind),lesson:meta.lesson??lessonFor(text,kind),context:{kind,source:meta.source??"runtime",applicability:meta.applicability??null,exception:meta.exception??null,...(meta.context||{})},sourceKnown:meta.sourceKnown!==false},a.mind.memory.length);
+    const episode=normalizeEpisode(a,{observedTick:tick,event:text,action:meta.action??null,perceivedOutcome:meta.perceivedOutcome??null,evidenceIds:meta.evidenceIds||[],importance:meta.importance??importanceFor(kind),lesson:meta.lesson??lessonFor(text,kind),context:{kind,source:meta.source??"runtime",timeKnown:true,applicability:meta.applicability??null,exception:meta.exception??null,...(meta.context||{})},sourceKnown:meta.sourceKnown!==false},a.mind.memory.length);
     a.mind.memory.push(episode);compact(a);return episode;
   };
 
