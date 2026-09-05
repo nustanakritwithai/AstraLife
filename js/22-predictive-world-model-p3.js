@@ -33,6 +33,15 @@
   ActionResolver.prototype.resolveMove=function(state,a,action){const before={x:a.body.x,y:a.body.y,energy:a.body.energy};const p=predictTravel(state,a,action);const outcome=oldResolveMove.call(this,state,a,action);settleTravel(state,a,p,before,outcome);return outcome};
   function predictConstruction(state,a,crewSize=2){const wm=ensure(a);return {model:"construction",predictedProgress:Math.max(0,crewSize*1.25),confidence:clamp(.45+wm.construction.samples*.02,.45,.8)}}
   function predictStormRisk(state,a){const wm=ensure(a);const thirst=clamp(a.body.thirst/100,0,1),hunger=clamp(a.body.hunger/100,0,1),shelterKnown=Number(a.mind.knownShelters||0);return {model:"storm",risk:clamp((state.stormTicks>0?.35:.1)+thirst*.3+hunger*.25-Math.min(.25,shelterKnown*.04),0,1),samples:wm.storm.samples}}
+
+  const oldPersistent=AgentStateBoundaryV051.persistent;
+  AgentStateBoundaryV051.persistent=function(a){const base=cloneJson(oldPersistent.call(this,a));base.worldModel=cloneJson(ensure(a));base.worldModelSchemaVersion=VERSION;return deepFreeze(base)};
+  if(window.AstraLifeP2?.restorePersistent){
+    const p2=window.AstraLifeP2,oldRestore=p2.restorePersistent;
+    window.AstraLifeP2=Object.freeze({...p2,restorePersistent:(id,snapshot)=>{const result=oldRestore(id,snapshot);if(result?.ok){const a=runtime.state.agentById.get(Number(id));if(a&&snapshot?.worldModel)a.mind.worldModel=cloneJson(snapshot.worldModel);if(a)ensure(a)}return result}});
+  }
+  const oldInspector=window.updateInspector;
+  if(typeof oldInspector==="function")window.updateInspector=function(){oldInspector();const a=runtime.selectedAgentId?runtime.state.agentById.get(runtime.selectedAgentId):null;if(!a||!ui.iwm)return;const wm=ensure(a),p=[...wm.predictions].reverse().find(x=>x.status==="RESOLVED");if(p)ui.iwm.textContent+=`\n\n[P3 prediction]\n${p.model} · ${p.context.loadBucket||"-"}\npred energy=${(p.predicted.energyCost||0).toFixed(4)} actual=${(p.actual.energyCost||0).toFixed(4)}\nerror=${(p.error.energyAbs||0).toFixed(4)}\nadjust ${p.adjustment.before.toFixed(3)}→${p.adjustment.after.toFixed(3)}`};
   for(const a of runtime.state.agents)ensure(a);
   window.AstraLifeP3=Object.freeze({version:VERSION,ensure:id=>{const a=runtime.state.agentById.get(Number(id));return a?cloneJson(ensure(a)):null},predictConstruction:(id,n)=>{const a=runtime.state.agentById.get(Number(id));return a?predictConstruction(runtime.state,a,n):null},predictStormRisk:id=>{const a=runtime.state.agentById.get(Number(id));return a?predictStormRisk(runtime.state,a):null}});
 })();
