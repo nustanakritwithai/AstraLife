@@ -2,7 +2,7 @@ name: P1 Structured Belief
 
 on:
   pull_request:
-    branches: [ p0.1-knowledge-boundary-audit ]
+    branches: [ main ]
     paths:
       - 'index.html'
       - 'js/**'
