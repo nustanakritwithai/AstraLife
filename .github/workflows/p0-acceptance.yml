@@ -1,0 +1,28 @@
+name: P0 Core Acceptance
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'index.html'
+      - 'js/**'
+      - 'tests/**'
+      - '.github/workflows/p0-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  core-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run 60-agent / 1000-tick P0 acceptance
+        run: node tests/p0-browser-acceptance.mjs
