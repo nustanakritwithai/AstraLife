@@ -14,7 +14,6 @@
   }
   function activeFor(a,key){ensure(a);return [...a.mind.beliefs.values()].filter(b=>b.key===key&&b.status!==BELIEF_STATUS.REFUTED).sort((x,y)=>(y.status===BELIEF_STATUS.CONFIRMED)-(x.status===BELIEF_STATUS.CONFIRMED)||y.confidence-x.confidence)[0]||null}
   function mirror(a,key){const b=activeFor(a,key);if(!b){a.mind.facts.delete(key);return}a.mind.facts.set(key,{key,value:cloneJson(b.value),confidence:b.confidence,lastSeenTick:b.observedTick??b.receivedTick??0,source:b.sourceKind,sourceAgentId:b.sourceAgentId,originEvidenceId:b.originEvidenceId,claimFingerprint:b.claimFingerprint,beliefId:b.beliefId})}
-  const oldSetFact=MemorySystem.prototype.setFact;
   MemorySystem.prototype.setFact=function(a,key,value,confidence,source="direct",sourceAgentId=null){
     ensure(a);const tick=this.tickOf(a),fingerprint=fp(key,value),direct=source==="direct"||source==="initial";
     const evidenceId=direct?`obs:${a.id}:${tick}:${fingerprint}`:`msg:${sourceAgentId||"unknown"}:${fingerprint}`;
@@ -29,6 +28,12 @@
   };
   const oldIngest=MemorySystem.prototype.ingest;
   MemorySystem.prototype.ingest=function(a,o,state=null){oldIngest.call(this,a,o,state);ensure(a);for(const msg of o.messages||[])for(const fact of msg.facts||[])this.receiveBelief(a,fact,msg);for(const b of [...a.mind.beliefs.values()])if(b.expiresAtTick!=null&&o.tick>b.expiresAtTick&&b.status===BELIEF_STATUS.UNVERIFIED)a.mind.beliefs.set(b.beliefId,Object.freeze({...b,status:BELIEF_STATUS.STALE}));};
+  const oldVerify=MemorySystem.prototype.verifyClaim;
+  MemorySystem.prototype.verifyClaim=function(observer,source,state,accurate,label){
+    if(accurate)return oldVerify.call(this,observer,source,state,true,label);
+    ensure(observer);const fact=observer.mind.facts.get(label);if(fact?.key)this.markBeliefStale(observer,fact.key);
+    this.remember(observer,`claim from Astra-${String(source||0).padStart(3,"0")} is no longer confirmed under current conditions: ${label}`,"belief-revision");
+  };
   MemorySystem.prototype.confirmBelief=function(a,key,value,tick=this.tickOf(a)){
     ensure(a);const fingerprint=fp(key,value);for(const b of [...a.mind.beliefs.values()])if(b.key===key){if(b.claimFingerprint===fingerprint)a.mind.beliefs.set(b.beliefId,Object.freeze({...b,status:BELIEF_STATUS.CONFIRMED,confidence:Math.max(b.confidence,.92),observedTick:tick,expiresAtTick:tick+220}));else if(b.status!==BELIEF_STATUS.STALE)a.mind.beliefs.set(b.beliefId,Object.freeze({...b,status:BELIEF_STATUS.REFUTED}))}mirror(a,key)};
   MemorySystem.prototype.markBeliefStale=function(a,key){ensure(a);for(const b of [...a.mind.beliefs.values()])if(b.key===key&&b.status!==BELIEF_STATUS.REFUTED)a.mind.beliefs.set(b.beliefId,Object.freeze({...b,status:BELIEF_STATUS.STALE}));mirror(a,key)};
