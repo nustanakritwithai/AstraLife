@@ -1,0 +1,30 @@
+name: P0.1 Knowledge Boundary
+
+on:
+  pull_request:
+    branches: [ v0.5.1-core-hardening ]
+    paths:
+      - 'index.html'
+      - 'js/**'
+      - 'tests/**'
+      - '.github/workflows/p01-knowledge-boundary.yml'
+  workflow_dispatch:
+
+jobs:
+  knowledge-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Re-run P0 core regression
+        run: node tests/p0-browser-acceptance.mjs
+      - name: Run P0.1 hidden-state leakage acceptance
+        run: node tests/p01-browser-acceptance.mjs
