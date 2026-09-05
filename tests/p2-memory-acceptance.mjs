@@ -14,7 +14,16 @@ const result=await page.evaluate(()=>{
   // Legacy migration: preserve text, mark unknown metadata, never fabricate evidence.
   A.mind.memory=[{text:'legacy note without provenance',kind:'legacy'}];
   const migrated=AstraLifeP2.migrateAgent(A.id)[0];
+  const migratedAgain=AstraLifeP2.migrateAgent(A.id)[0];
   const legacyMigrationSafe=migrated.event==='legacy note without provenance'&&migrated.legacy===true&&migrated.sourceKnown===false&&migrated.observedTick===null&&migrated.evidenceIds.length===0;
+  const unknownTimeStableAcrossRemigration=migratedAgain.observedTick===null&&migratedAgain.context?.timeKnown===false;
+
+  // Unknown timestamps must also survive persistence/restore without becoming synthetic tick 0.
+  const unknownSnapshot=AgentStateBoundaryV051.persistent(A);
+  A.mind.memory=[];
+  AstraLifeP2.restorePersistent(A.id,unknownSnapshot);
+  const unknownAfterRestore=A.mind.memory[0];
+  const unknownTimeStableAcrossRestore=unknownAfterRestore?.observedTick===null&&unknownAfterRestore?.context?.timeKnown===false;
 
   // MEM-01: force compaction and verify important lesson + evidence + applicability + exception survive.
   A.mind.memory=[];
@@ -53,7 +62,7 @@ const result=await page.evaluate(()=>{
   // Restore original fixture to avoid contaminating integrity check.
   AstraLifeP2.restorePersistent(A.id,original);
 
-  const tests={legacyMigrationSafe,MEM01_compactionRetainsLessonProvenance:mem01,retrievalBoundedAndRelevant:retrievalBounded,SAVE01_persistentRestorePreservesStructuredState:save01,inspectorShowsStructuredMemoryWithoutCoT:inspectorStructured,P0IntegrityStillPasses:runtime.selfTest().ok};
+  const tests={legacyMigrationSafe,unknownTimeStableAcrossRemigration,unknownTimeStableAcrossRestore,MEM01_compactionRetainsLessonProvenance:mem01,retrievalBoundedAndRelevant:retrievalBounded,SAVE01_persistentRestorePreservesStructuredState:save01,inspectorShowsStructuredMemoryWithoutCoT:inspectorStructured,P0IntegrityStillPasses:runtime.selfTest().ok};
   return {ok:Object.values(tests).every(Boolean),tests,compactedCount:compacted.length,retrievalTokens:retrieval.estimatedTokens,savedMemorySchema:saved.memorySchemaVersion,restored};
 });
 console.log(JSON.stringify(result,null,2));
