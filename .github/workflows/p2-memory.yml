@@ -1,0 +1,34 @@
+name: P2 Memory Migration
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'index.html'
+      - 'js/**'
+      - 'tests/**'
+      - '.github/workflows/p2-memory.yml'
+  workflow_dispatch:
+
+jobs:
+  memory-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Re-run P0 core regression
+        run: node tests/p0-browser-acceptance.mjs
+      - name: Re-run P0.1 knowledge-boundary regression
+        run: node tests/p01-browser-acceptance.mjs
+      - name: Re-run P1 structured-belief regression
+        run: node tests/p1-belief-acceptance.mjs
+      - name: Run P2 memory migration acceptance
+        run: node tests/p2-memory-acceptance.mjs
