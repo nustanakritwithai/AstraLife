@@ -47,10 +47,21 @@
     while(a.mind.memory.length>MAX_EPISODES){
       const old=a.mind.memory.splice(0,Math.min(COMPACT_BATCH,a.mind.memory.length-MAX_EPISODES+COMPACT_BATCH-1));
       const evidenceIds=[...new Set(old.flatMap(e=>e.evidenceIds||[]))];
-      const lessons=[...new Set(old.map(e=>e.lesson).filter(Boolean))].slice(0,8);
-      const exceptions=old.filter(e=>e.context?.exception).map(e=>e.context.exception).filter(Boolean).slice(0,6);
-      const start=old.map(e=>e.observedTick).filter(Number.isFinite).sort((x,y)=>x-y)[0]??null;
-      const end=old.map(e=>e.observedTick).filter(Number.isFinite).sort((x,y)=>y-x)[0]??null;
+      const lessonCandidates=old.filter(e=>e.lesson).sort((x,y)=>(y.importance||0)-(x.importance||0)).map(e=>e.lesson);
+      const lessons=[...new Set(lessonCandidates)].slice(0,8);
+      const applicability=[...new Set(old.flatMap(e=>{
+        const value=e.context?.applicability;
+        return Array.isArray(value)?value.filter(Boolean):(value?[value]:[]);
+      }))].slice(0,8);
+      const exceptions=[...new Set(old.flatMap(e=>{
+        const values=[];
+        if(e.context?.exception)values.push(e.context.exception);
+        if(Array.isArray(e.context?.exceptions))values.push(...e.context.exceptions.filter(Boolean));
+        return values;
+      }))].slice(0,8);
+      const compactedEpisodeIds=[...new Set(old.flatMap(e=>[e.episodeId,...(Array.isArray(e.context?.compactedEpisodeIds)?e.context.compactedEpisodeIds:[])]).filter(Boolean))];
+      const start=old.flatMap(e=>[e.observedTick,e.context?.range?.startTick]).filter(Number.isFinite).sort((x,y)=>x-y)[0]??null;
+      const end=old.flatMap(e=>[e.observedTick,e.context?.range?.endTick]).filter(Number.isFinite).sort((x,y)=>y-x)[0]??null;
       const summary=Object.freeze({
         episodeId:idFor(a,end??0,`compact:${old.map(e=>e.episodeId).join("|")}`),
         observedTick:end,
@@ -60,7 +71,7 @@
         evidenceIds,
         importance:Math.max(.72,...old.map(e=>e.importance||0)),
         lesson:lessons.join(" | ")||"historical episode summary",
-        context:{kind:"compact",range:{startTick:start,endTick:end},applicability:[...new Set(old.map(e=>e.context?.applicability).filter(Boolean))].slice(0,6),exceptions,compactedEpisodeIds:old.map(e=>e.episodeId)},
+        context:{kind:"compact",range:{startTick:start,endTick:end},applicability,exceptions,compactedEpisodeIds},
         legacy:false,
         sourceKnown:old.every(e=>e.sourceKnown!==false)
       });
@@ -99,7 +110,6 @@
     if(snapshot.emergentRole!=null)a.emergentRole=snapshot.emergentRole;
     if(snapshot.providerSession?.sessionId)a.runtime.providerSessionId=snapshot.providerSession.sessionId;
     if(snapshot.providerSession?.lastProvider)a.runtime.lastProvider=snapshot.providerSession.lastProvider;
-    if(a.mind.beliefs&&typeof mirror==="function")for(const b of a.mind.beliefs.values())if(b.key)mirror(a,b.key);
     return {ok:true,memory:a.mind.memory.length,beliefs:a.mind.beliefs?.size||0,evidence:a.mind.evidence?.size||0};
   }
 
