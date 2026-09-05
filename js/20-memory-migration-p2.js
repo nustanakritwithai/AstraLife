@@ -86,8 +86,23 @@
     }
     return {episodes:out,estimatedTokens:used};
   }
+  function restorePersistent(a,snapshot){
+    if(!a||!snapshot||snapshot.agentId!==a.id)return {ok:false,error:"AGENT_ID_MISMATCH"};
+    a.mind.memory=(snapshot.memory||[]).map((m,i)=>normalizeEpisode(a,m,i));
+    compact(a);
+    if(Array.isArray(snapshot.beliefs))a.mind.beliefs=new Map(snapshot.beliefs.map(b=>[b.beliefId,deepFreeze(cloneJson(b))]));
+    if(Array.isArray(snapshot.evidence))a.mind.evidence=new Map(snapshot.evidence.map(e=>[e.evidenceId,deepFreeze(cloneJson(e))]));
+    if(Array.isArray(snapshot.socialTrust))a.social.trust=new Map(snapshot.socialTrust.map(([id,v])=>[Number(id),Number(v)]));
+    if(snapshot.skills&&a.development?.skills)for(const [k,v] of Object.entries(snapshot.skills))if(a.development.skills[k])Object.assign(a.development.skills[k],cloneJson(v));
+    if(snapshot.preferences&&a.development)a.development.preferences=cloneJson(snapshot.preferences);
+    if(snapshot.domainReputation&&a.development)a.development.domainReputation=cloneJson(snapshot.domainReputation);
+    if(snapshot.emergentRole!=null)a.emergentRole=snapshot.emergentRole;
+    if(snapshot.providerSession?.sessionId)a.runtime.providerSessionId=snapshot.providerSession.sessionId;
+    if(snapshot.providerSession?.lastProvider)a.runtime.lastProvider=snapshot.providerSession.lastProvider;
+    if(a.mind.beliefs&&typeof mirror==="function")for(const b of a.mind.beliefs.values())if(b.key)mirror(a,b.key);
+    return {ok:true,memory:a.mind.memory.length,beliefs:a.mind.beliefs?.size||0,evidence:a.mind.evidence?.size||0};
+  }
 
-  const previousRemember=MemorySystem.prototype.remember;
   MemorySystem.prototype.remember=function(a,text,kind="episode",meta={}){
     ensure(a);migrateAgent(a);const tick=this.tickOf(a);
     const episode=normalizeEpisode(a,{observedTick:tick,event:text,action:meta.action??null,perceivedOutcome:meta.perceivedOutcome??null,evidenceIds:meta.evidenceIds||[],importance:meta.importance??importanceFor(kind),lesson:meta.lesson??lessonFor(text,kind),context:{kind,source:meta.source??"runtime",applicability:meta.applicability??null,exception:meta.exception??null,...(meta.context||{})},sourceKnown:meta.sourceKnown!==false},a.mind.memory.length);
@@ -108,5 +123,5 @@
   };
 
   for(const a of runtime.state.agents)migrateAgent(a);
-  window.AstraLifeP2=Object.freeze({version:P2_VERSION,maxEpisodes:MAX_EPISODES,migrateAgent:id=>{const a=runtime.state.agentById.get(Number(id));return a?migrateAgent(a).map(cloneJson):[]},retrieve:(id,q,opts)=>{const a=runtime.state.agentById.get(Number(id));return a?retrieve(a,q,opts):{episodes:[],estimatedTokens:0}},compact:id=>{const a=runtime.state.agentById.get(Number(id));return a?compact(a).map(cloneJson):[]},normalizeLegacy:(id,m)=>{const a=runtime.state.agentById.get(Number(id));return a?cloneJson(normalizeEpisode(a,m,0)):null}});
+  window.AstraLifeP2=Object.freeze({version:P2_VERSION,maxEpisodes:MAX_EPISODES,migrateAgent:id=>{const a=runtime.state.agentById.get(Number(id));return a?migrateAgent(a).map(cloneJson):[]},retrieve:(id,q,opts)=>{const a=runtime.state.agentById.get(Number(id));return a?retrieve(a,q,opts):{episodes:[],estimatedTokens:0}},compact:id=>{const a=runtime.state.agentById.get(Number(id));return a?compact(a).map(cloneJson):[]},normalizeLegacy:(id,m)=>{const a=runtime.state.agentById.get(Number(id));return a?cloneJson(normalizeEpisode(a,m,0)):null},restorePersistent:(id,snapshot)=>{const a=runtime.state.agentById.get(Number(id));return a?restorePersistent(a,snapshot):{ok:false,error:"AGENT_NOT_FOUND"}}});
 })();
