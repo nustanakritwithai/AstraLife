@@ -1,0 +1,30 @@
+name: Post-merge Main Smoke
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'POST_MERGE_SMOKE.md'
+      - '.github/workflows/post-merge-main-smoke.yml'
+      - '.github/workflows/p1-belief.yml'
+
+jobs:
+  integrated-main-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: P0 core regression
+        run: node tests/p0-browser-acceptance.mjs
+      - name: P0.1 knowledge-boundary regression
+        run: node tests/p01-browser-acceptance.mjs
+      - name: P1 structured-belief integration
+        run: node tests/p1-belief-acceptance.mjs
