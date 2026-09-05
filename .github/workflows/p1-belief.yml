@@ -1,0 +1,32 @@
+name: P1 Structured Belief
+
+on:
+  pull_request:
+    branches: [ p0.1-knowledge-boundary-audit ]
+    paths:
+      - 'index.html'
+      - 'js/**'
+      - 'tests/**'
+      - '.github/workflows/p1-belief.yml'
+  workflow_dispatch:
+
+jobs:
+  belief-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Re-run P0 core regression
+        run: node tests/p0-browser-acceptance.mjs
+      - name: Re-run P0.1 knowledge-boundary regression
+        run: node tests/p01-browser-acceptance.mjs
+      - name: Run P1 belief acceptance
+        run: node tests/p1-belief-acceptance.mjs
