@@ -1,0 +1,38 @@
+name: P4 Executable Plans
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'index.html'
+      - 'js/**'
+      - 'tests/**'
+      - '.github/workflows/p4-executable-plans.yml'
+  workflow_dispatch:
+
+jobs:
+  executable-plans-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Re-run P0 core regression
+        run: node tests/p0-browser-acceptance.mjs
+      - name: Re-run P0.1 knowledge-boundary regression
+        run: node tests/p01-browser-acceptance.mjs
+      - name: Re-run P1 structured-belief regression
+        run: node tests/p1-belief-acceptance.mjs
+      - name: Re-run P2 memory regression
+        run: node tests/p2-memory-acceptance.mjs
+      - name: Re-run P3 predictive world-model acceptance
+        run: node tests/p3-world-model-acceptance.mjs
+      - name: Run P4 executable-plan acceptance
+        run: node tests/p4-executable-plans-acceptance.mjs
