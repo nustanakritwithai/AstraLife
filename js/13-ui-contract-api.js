@@ -116,7 +116,7 @@ window.AstraColony=Object.freeze({
   version:VERSION,protocols:PROTOCOL,
   step:()=>{const previous=captureVisualSnapshot(runtime.state);const out=runtime.tickOnce();rememberAuthoritativeTick(previous,captureVisualSnapshot(runtime.state));return out},
   runTicks:n=>{const previous=captureVisualSnapshot(runtime.state);const out=runtime.runTicks(n);rememberAuthoritativeTick(previous,captureVisualSnapshot(runtime.state));return out},
-  reset:seed=>{runtime.reset(seed);resetVisualInterpolation();render(true);updateHud(true);return runtime.snapshot()},
+  reset:seed=>{runtime.reset(seed);resetVisualInterpolation();resetCameraToDefault();render(true);updateHud(true);return runtime.snapshot()},
   snapshot:()=>runtime.snapshot(),
   selfTest:()=>runtime.selfTest(),
   contractBundle:()=>runtime.contractBundle(),

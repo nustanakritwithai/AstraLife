@@ -45,6 +45,9 @@
   .trace{display:grid;gap:3px}
   .trace div{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:8px;padding:4px 6px;border:1px solid #1b3327;border-radius:6px;background:#07120d;color:#a9ceb7}
   #tip{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);background:#06100cdd;border:1px solid #244835;padding:6px 10px;border-radius:999px;font-size:9px;color:#a7cdb5;white-space:nowrap;max-width:96vw;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+  .camera-controls{position:absolute;right:10px;bottom:36px;z-index:4;display:flex;gap:5px;align-items:center}
+  .camera-controls button{min-width:34px;min-height:34px;padding:6px 8px;background:#0b2117ee;box-shadow:0 6px 18px #0008;font-size:12px}
+  .camera-controls button:last-child{font-size:10px}
   .ok{color:var(--accent)!important}.bad{color:var(--danger)!important}
   @media(max-width:850px){
     header{gap:5px;padding:6px}
@@ -76,3 +79,4 @@
   .modal-actions{display:flex;gap:6px;flex-wrap:wrap}
   .warn-note{color:#ffd98a}
   @media(max-width:850px){#endpointInput{width:145px}.provider-select{max-width:150px}.modal{height:96vh}.modal-tools select{min-width:170px;max-width:100%}}
+  @media(max-width:850px){.camera-controls{right:8px;bottom:42px;gap:4px}.camera-controls button{min-width:36px;min-height:36px}}
