@@ -49,22 +49,23 @@ function drawMessageEffects(state){
   for(const e of state.effects.messages){
     const a=state.agentById.get(e.fromId),b=state.agentById.get(e.toId);if(!a||!b||!a.alive||!b.alive)continue;
     const alpha=clamp(1-(state.tick-e.bornTick)/15,0,1)*.48;const rgb=e.intent==="WARN"?"255,139,139":e.intent==="REQUEST_HELP"?"255,211,106":e.intent==="ASK"?"117,201,255":e.intent==="OFFER"?"211,147,255":"126,225,177";ctx.strokeStyle=`rgba(${rgb},${alpha})`;ctx.lineWidth=e.intent==="WARN"?1.25:.75;
-    ctx.beginPath();ctx.moveTo(a.body.x,a.body.y);ctx.lineTo(b.body.x,b.body.y);ctx.stroke();
+    ctx.beginPath();const pa=visualAgentPosition(a),pb=visualAgentPosition(b);ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
   }
 }
 function drawAgent(a,selected){
-  if(!a.alive){ctx.fillStyle="#3c4741";ctx.fillRect(a.body.x-2,a.body.y-2,4,4);return}
-  ctx.fillStyle=ROLE_COLORS[a.role]||"#77f2ad";ctx.beginPath();ctx.arc(a.body.x,a.body.y,selected?5.5:3.5,0,Math.PI*2);ctx.fill();
+  const p=visualAgentPosition(a),x=p.x,y=p.y;
+  if(!a.alive){ctx.fillStyle="#3c4741";ctx.fillRect(x-2,y-2,4,4);return}
+  ctx.fillStyle=ROLE_COLORS[a.role]||"#77f2ad";ctx.beginPath();ctx.arc(x,y,selected?5.5:3.5,0,Math.PI*2);ctx.fill();
   if(a.runtime.lastProvider&&a.runtime.lastProvider!=="local"){
     ctx.strokeStyle=PROVIDER_RING[a.runtime.lastProvider]||"#d393ff";ctx.lineWidth=a.runtime.providerStatus==="pending"?1.8:.8;
-    ctx.beginPath();ctx.arc(a.body.x,a.body.y,a.runtime.providerStatus==="pending"?8:6.5,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.arc(x,y,a.runtime.providerStatus==="pending"?8:6.5,0,Math.PI*2);ctx.stroke();
   }
-  if(a.body.hp<45){ctx.strokeStyle="#ff7b7b";ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(a.body.x,a.body.y,7,0,Math.PI*2);ctx.stroke()}
-  if(a.inventory.amount>0){ctx.fillStyle=a.inventory.type==="water"?"#55b5ff":a.inventory.type==="food"?"#df73ff":"#b7804b";ctx.fillRect(a.body.x-2.5,a.body.y+5,5,2)}
+  if(a.body.hp<45){ctx.strokeStyle="#ff7b7b";ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.stroke()}
+  if(a.inventory.amount>0){ctx.fillStyle=a.inventory.type==="water"?"#55b5ff":a.inventory.type==="food"?"#df73ff":"#b7804b";ctx.fillRect(x-2.5,y+5,5,2)}
   if(selected){
-    ctx.strokeStyle="#fff";ctx.lineWidth=1;ctx.beginPath();ctx.arc(a.body.x,a.body.y,10,0,Math.PI*2);ctx.stroke();
-    ctx.fillStyle="#fff";ctx.font="10px system-ui";ctx.fillText(a.name,a.body.x+12,a.body.y-6);
-    if(a.mind.target){ctx.strokeStyle="#fff6";ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(a.body.x,a.body.y);ctx.lineTo(a.mind.target.x,a.mind.target.y);ctx.stroke();ctx.setLineDash([])}
+    ctx.strokeStyle="#fff";ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,10,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle="#fff";ctx.font="10px system-ui";ctx.fillText(a.name,x+12,y-6);
+    if(a.mind.target){ctx.strokeStyle="#fff6";ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(a.mind.target.x,a.mind.target.y);ctx.stroke();ctx.setLineDash([])}
   }
 }
 let renderDirty=true,lastRenderedTick=-1;
@@ -77,7 +78,8 @@ addEventListener("resize",markRenderDirty);
 
 function render(force=false){
   const state=runtime.state;const v=worldView();
-  if(!force&&!renderDirty&&lastRenderedTick===state.tick)return false;
+  // Render is independent from authoritative ticks: interpolation and effects advance every frame.
+  // Do not gate this on state.tick or renderDirty; a two-second world interval still needs continuous animation.
   ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle="#020806";ctx.fillRect(0,0,CSS_W,CSS_H);
   ctx.save();ctx.translate(v.ox,v.oy);ctx.scale(v.scale,v.scale);
   drawBackground(state);for(const r of state.resources)drawResource(r);drawCamp(state);drawMessageEffects(state);
@@ -143,18 +145,18 @@ function updateHud(force=false){
 }
 function pickAgent(clientX,clientY){
   const p=screenToWorld(clientX,clientY);let best=null,bestD=18;
-  for(const a of runtime.state.agents){const d=Math.hypot(a.body.x-p.x,a.body.y-p.y);if(d<bestD){bestD=d;best=a}}
+  for(const a of runtime.state.agents){const ap=visualAgentPosition(a),d=Math.hypot(ap.x-p.x,ap.y-p.y);if(d<bestD){bestD=d;best=a}}
   if(best){runtime.selectedAgentId=best.id;renderDirty=true;updateInspector(true);render(true)}
 }
 canvas.addEventListener("click",e=>pickAgent(e.clientX,e.clientY));
 canvas.addEventListener("touchstart",e=>{const t=e.touches[0];if(t)pickAgent(t.clientX,t.clientY)},{passive:true});
 
 $("toggle").onclick=e=>{runtime.state.running=!runtime.state.running;e.currentTarget.textContent=runtime.state.running?"⏸ หยุด":"▶ เดินต่อ"};
-$("stepBtn").onclick=()=>{runtime.tickOnce();render(true);updateHud(true)};
+$("stepBtn").onclick=()=>{AstraColony.step();render(true);updateHud(true)};
 $("addBtn").onclick=()=>{runtime.spawnAgents(20);renderDirty=true;render(true);updateHud(true)};
 $("stormBtn").onclick=()=>{runtime.triggerStorm();renderDirty=true;render(true);updateHud(true)};
 $("rumorBtn").onclick=()=>{const out=runtime.injectRumor();if(!out.ok&&out.error)runtime.events.emit(runtime.state.tick,"RUMOR",out.error,{},"danger");renderDirty=true;render(true);updateHud(true)};
-$("resetBtn").onclick=()=>{runtime.reset($("seedInput").value.trim()||"ASTRA-2026");$("toggle").textContent="⏸ หยุด";render(true);updateHud(true)};
+$("resetBtn").onclick=()=>{runtime.reset($("seedInput").value.trim()||"ASTRA-2026");resetVisualInterpolation();$("toggle").textContent="⏸ หยุด";render(true);updateHud(true)};
 $("applySeedBtn").onclick=()=>{$("resetBtn").click()};
 $("speedSelect").onchange=e=>runtime.state.speed=clamp(Number(e.target.value)||1,1,8);
 $("providerSelect").onchange=e=>{runtime.setProviderMode(e.target.value);$("endpointInput").disabled=e.target.value!==PROVIDER_MODE.REMOTE;updateHud()};
