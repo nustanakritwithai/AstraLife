@@ -1,11 +1,68 @@
+const CAMERA_CONFIG=Object.freeze({defaultZoomMultiplier:2.8,minZoomPadding:1,maxZoom:3.5,focusEasing:.22});
+const camera={center:{x:SPACE.width/2,y:SPACE.height/2},zoom:1,followSelected:true,initialized:false};
+
+function fitZoom(){return Math.min(CSS_W/SPACE.width,CSS_H/SPACE.height)}
+function defaultCloseZoom(){return clamp(Math.max(fitZoom()*CAMERA_CONFIG.defaultZoomMultiplier,CAMERA_CONFIG.minZoomPadding),fitZoom(),CAMERA_CONFIG.maxZoom)}
+function cameraBounds(zoom=camera.zoom){
+  const width=SPACE.width/zoom,height=SPACE.height/zoom;
+  return {halfWidth:Math.min(SPACE.width/2,width/2),halfHeight:Math.min(SPACE.height/2,height/2),width,height};
+}
+function clampCameraCenter(center,zoom=camera.zoom){
+  const b=cameraBounds(zoom);
+  return {x:clamp(center.x,b.halfWidth,SPACE.width-b.halfWidth),y:clamp(center.y,b.halfHeight,SPACE.height-b.halfHeight)};
+}
+function livingAgent(id=runtime.selectedAgentId){
+  const selected=id?runtime.state.agentById.get(Number(id)):null;
+  return selected?.alive?selected:runtime.state.agents.find(agent=>agent.alive)||null;
+}
 function worldView(){
-  const scale=Math.min(CSS_W/SPACE.width,CSS_H/SPACE.height);
+  const scale=camera.zoom;
   const width=SPACE.width*scale,height=SPACE.height*scale;
-  return {scale,ox:(CSS_W-width)/2,oy:(CSS_H-height)/2};
+  return {scale,zoom:scale,fitZoom:fitZoom(),ox:CSS_W/2-camera.center.x*scale,oy:CSS_H/2-camera.center.y*scale,width,height,center:{...camera.center}};
+}
+function worldToScreen(point){
+  const v=worldView();return {x:point.x*v.scale+v.ox,y:point.y*v.scale+v.oy};
 }
 function screenToWorld(clientX,clientY){
   const r=canvas.getBoundingClientRect(),v=worldView();
   return {x:(clientX-r.left-v.ox)/v.scale,y:(clientY-r.top-v.oy)/v.scale};
+}
+function screenPoint(clientX,clientY){
+  const r=canvas.getBoundingClientRect();return {x:clientX-r.left,y:clientY-r.top};
+}
+function screenLocalToWorld(x,y){
+  const v=worldView();return {x:(x-v.ox)/v.scale,y:(y-v.oy)/v.scale};
+}
+function ensureCameraTarget(){
+  const target=livingAgent();
+  if(target&&!runtime.selectedAgentId)runtime.selectedAgentId=target.id;
+  if(!camera.initialized){
+    camera.zoom=defaultCloseZoom();camera.center=clampCameraCenter(target?{x:target.body.x,y:target.body.y}:{x:SPACE.width/2,y:SPACE.height/2});camera.followSelected=true;camera.initialized=true;
+  }
+  return target;
+}
+function focusCamera(id=runtime.selectedAgentId){
+  const target=livingAgent(id);if(!target)return null;
+  runtime.selectedAgentId=target.id;camera.followSelected=true;camera.center=clampCameraCenter({x:visualAgentPosition(target).x,y:visualAgentPosition(target).y});return target;
+}
+function resetCameraToDefault(){
+  const target=livingAgent();if(target)runtime.selectedAgentId=target.id;
+  camera.zoom=defaultCloseZoom();camera.followSelected=true;camera.center=clampCameraCenter(target?{x:target.body.x,y:target.body.y}:{x:SPACE.width/2,y:SPACE.height/2});camera.initialized=true;
+  return target;
+}
+function fitCameraToMap(){
+  camera.zoom=fitZoom();camera.center={x:SPACE.width/2,y:SPACE.height/2};camera.followSelected=false;camera.initialized=true;return worldView();
+}
+function zoomCameraAt(nextZoom,localX=CSS_W/2,localY=CSS_H/2){
+  const before=screenLocalToWorld(localX,localY),zoom=clamp(Number(nextZoom)||camera.zoom,fitZoom(),CAMERA_CONFIG.maxZoom);
+  camera.zoom=zoom;camera.center=clampCameraCenter({x:before.x-(localX-CSS_W/2)/zoom,y:before.y-(localY-CSS_H/2)/zoom},zoom);camera.initialized=true;return worldView();
+}
+function zoomCameraBy(factor,localX=CSS_W/2,localY=CSS_H/2){return zoomCameraAt(camera.zoom*factor,localX,localY)}
+function syncCameraToSelected(){
+  const target=ensureCameraTarget();if(!target||!camera.followSelected)return target;
+  const p=visualAgentPosition(target),next=clampCameraCenter(p);
+  camera.center={x:camera.center.x+(next.x-camera.center.x)*CAMERA_CONFIG.focusEasing,y:camera.center.y+(next.y-camera.center.y)*CAMERA_CONFIG.focusEasing};
+  return target;
 }
 function terrainColor(type,night){
   const palette=night?{forest:"#0c2216",meadow:"#102a1b",rock:"#17231d",wetland:"#0b2421"}:{forest:"#174229",meadow:"#1b4c2d",rock:"#30423a",wetland:"#164641"};
@@ -68,6 +125,26 @@ function drawAgent(a,selected){
     if(a.mind.target){ctx.strokeStyle="#fff6";ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(a.mind.target.x,a.mind.target.y);ctx.stroke();ctx.setLineDash([])}
   }
 }
+function focusedThought(agent){
+  if(!agent)return "";
+  const goal=String(agent.mind?.goal||"observe").replace(/[_-]+/g," ");
+  const reason=String(agent.mind?.goalReason||"").trim();
+  const plan=String(agent.mind?.plan||"").trim();
+  const action=String(agent.runtime?.lastActionType||ACTION.WAIT).replace(/[_-]+/g," ");
+  const detail=reason||plan;
+  const text=`${goal} · ${action}${detail?` · ${detail}`:""}`.replace(/\s+/g," ").trim();
+  return text.length>92?`${text.slice(0,89)}…`:text;
+}
+function drawFocusedThought(agent){
+  if(!agent||!agent.alive)return "";
+  const text=focusedThought(agent);if(!text)return "";
+  const p=worldToScreen(visualAgentPosition(agent)),padding=7,font="12px system-ui";
+  ctx.save();ctx.font=font;const maxWidth=Math.min(245,Math.max(120,CSS_W-24)),width=Math.min(maxWidth,ctx.measureText(`💭 ${text}`).width+padding*2),height=30;
+  const x=clamp(p.x-width/2,8,CSS_W-width-8),y=clamp(p.y-48,8,CSS_H-height-8),radius=9;
+  ctx.fillStyle="#06100cf2";ctx.strokeStyle="#77f2adbb";ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(x,y,width,height,radius);ctx.fill();ctx.stroke();
+  ctx.fillStyle="#eafff1";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(`💭 ${text}`,x+width/2,y+height/2,maxWidth-padding*2);ctx.restore();
+  return text;
+}
 let renderDirty=true,lastRenderedTick=-1;
 let lastHudAt=0,lastHudTick=-1,lastHudState=null;
 let lastIntegrityAt=-Infinity,lastIntegrity={ok:true,errors:[]};
@@ -75,17 +152,18 @@ let lastEventStore=null,lastEventId=-1;
 let lastInspectorState=null,lastInspectorTick=-1,lastInspectorAgentId=null;
 function markRenderDirty(){renderDirty=true}
 addEventListener("resize",markRenderDirty);
+addEventListener("resize",()=>{camera.zoom=Math.max(camera.zoom,fitZoom());camera.center=clampCameraCenter(camera.center,camera.zoom)});
 
 function render(force=false){
-  const state=runtime.state;const v=worldView();
+  const state=runtime.state;const selected=syncCameraToSelected();const v=worldView();
   // Render is independent from authoritative ticks: interpolation and effects advance every frame.
   // Do not gate this on state.tick or renderDirty; a two-second world interval still needs continuous animation.
   ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle="#020806";ctx.fillRect(0,0,CSS_W,CSS_H);
   ctx.save();ctx.translate(v.ox,v.oy);ctx.scale(v.scale,v.scale);
   drawBackground(state);for(const r of state.resources)drawResource(r);drawCamp(state);drawMessageEffects(state);
-  const selected=runtime.selectedAgentId?state.agentById.get(runtime.selectedAgentId):null;
   for(const a of state.agents)drawAgent(a,a===selected);
   ctx.restore();
+  drawFocusedThought(selected);
   lastRenderedTick=state.tick;renderDirty=false;return true;
 }
 
@@ -146,17 +224,51 @@ function updateHud(force=false){
 function pickAgent(clientX,clientY){
   const p=screenToWorld(clientX,clientY);let best=null,bestD=18;
   for(const a of runtime.state.agents){const ap=visualAgentPosition(a),d=Math.hypot(ap.x-p.x,ap.y-p.y);if(d<bestD){bestD=d;best=a}}
-  if(best){runtime.selectedAgentId=best.id;renderDirty=true;updateInspector(true);render(true)}
+  if(best){focusCamera(best.id);renderDirty=true;updateInspector(true);render(true)}
 }
-canvas.addEventListener("click",e=>pickAgent(e.clientX,e.clientY));
-canvas.addEventListener("touchstart",e=>{const t=e.touches[0];if(t)pickAgent(t.clientX,t.clientY)},{passive:true});
+const activePointers=new Map();let pointerStart=null,pointerMoved=false,pinchDistance=0;
+function pointerDistance(){const points=[...activePointers.values()];return points.length<2?0:Math.hypot(points[0].x-points[1].x,points[0].y-points[1].y)}
+function pointerMidpoint(){const points=[...activePointers.values()];return points.length<2?{x:CSS_W/2,y:CSS_H/2}:{x:(points[0].x+points[1].x)/2,y:(points[0].y+points[1].y)/2}}
+canvas.addEventListener("pointerdown",e=>{
+  const p=screenPoint(e.clientX,e.clientY);activePointers.set(e.pointerId,p);canvas.setPointerCapture?.(e.pointerId);
+  if(activePointers.size===1){pointerStart=p;pointerMoved=false}else{pinchDistance=pointerDistance();pointerMoved=true}
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!activePointers.has(e.pointerId))return;const previous=activePointers.get(e.pointerId),next=screenPoint(e.clientX,e.clientY);activePointers.set(e.pointerId,next);
+  if(activePointers.size>=2){const distanceNow=pointerDistance(),mid=pointerMidpoint();if(pinchDistance>0&&distanceNow>0)zoomCameraAt(camera.zoom*distanceNow/pinchDistance,mid.x,mid.y);pinchDistance=distanceNow;pointerMoved=true;render(true);return}
+  if(pointerStart){const dx=next.x-previous.x,dy=next.y-previous.y;if(Math.hypot(next.x-pointerStart.x,next.y-pointerStart.y)>7)pointerMoved=true;if(pointerMoved){camera.followSelected=false;camera.center=clampCameraCenter({x:camera.center.x-dx/camera.zoom,y:camera.center.y-dy/camera.zoom});render(true)}}
+});
+function finishPointer(e){const p=activePointers.get(e.pointerId);activePointers.delete(e.pointerId);if(activePointers.size){pointerStart=[...activePointers.values()][0];pointerMoved=true;pinchDistance=pointerDistance();return}if(p&&!pointerMoved)pickAgent(e.clientX,e.clientY);pointerStart=null;pointerMoved=false;pinchDistance=0}
+canvas.addEventListener("pointerup",finishPointer);canvas.addEventListener("pointercancel",()=>{activePointers.clear();pointerStart=null;pointerMoved=false;pinchDistance=0});
+canvas.addEventListener("wheel",e=>{e.preventDefault();const p=screenPoint(e.clientX,e.clientY);zoomCameraBy(e.deltaY>0?.88:1.14,p.x,p.y);render(true)},{passive:false});
+
+$("zoomInBtn").onclick=()=>{zoomCameraBy(1.25);render(true)};
+$("zoomOutBtn").onclick=()=>{zoomCameraBy(.8);render(true)};
+$("fitMapBtn").onclick=()=>{fitCameraToMap();render(true)};
+$("focusBtn").onclick=()=>{focusCamera();render(true)};
+
+window.AstraLifeCamera=Object.freeze({
+  config:CAMERA_CONFIG,
+  getState:()=>({center:{...camera.center},zoom:camera.zoom,fitZoom:fitZoom(),followSelected:camera.followSelected,selectedAgentId:runtime.selectedAgentId,focusedAgentId:livingAgent()?.id||null}),
+  worldView:()=>({...worldView(),center:{...camera.center}}),
+  worldToScreen:point=>({...worldToScreen(point)}),
+  screenToWorld:(x,y)=>({...screenLocalToWorld(x,y)}),
+  focusAgent:id=>{const target=focusCamera(id);render(true);return target?{id:target.id,state:{...camera.center}}:null},
+  reset:()=>{const target=resetCameraToDefault();render(true);return target?target.id:null},
+  fitToMap:()=>{const view=fitCameraToMap();render(true);return {...view}},
+  zoomBy:(factor,x,y)=>{const view=zoomCameraBy(factor,x,y);render(true);return {...view}},
+  getFocusedThought:()=>{const target=livingAgent();return {agentId:target?.id||null,text:focusedThought(target)}},
+  pickAt:(x,y)=>{const before=runtime.selectedAgentId;pickAgent(x+canvas.getBoundingClientRect().left,y+canvas.getBoundingClientRect().top);return {before,after:runtime.selectedAgentId}}
+});
+
+ensureCameraTarget();
 
 $("toggle").onclick=e=>{runtime.state.running=!runtime.state.running;e.currentTarget.textContent=runtime.state.running?"⏸ หยุด":"▶ เดินต่อ"};
 $("stepBtn").onclick=()=>{AstraColony.step();render(true);updateHud(true)};
 $("addBtn").onclick=()=>{runtime.spawnAgents(20);renderDirty=true;render(true);updateHud(true)};
 $("stormBtn").onclick=()=>{runtime.triggerStorm();renderDirty=true;render(true);updateHud(true)};
 $("rumorBtn").onclick=()=>{const out=runtime.injectRumor();if(!out.ok&&out.error)runtime.events.emit(runtime.state.tick,"RUMOR",out.error,{},"danger");renderDirty=true;render(true);updateHud(true)};
-$("resetBtn").onclick=()=>{runtime.reset($("seedInput").value.trim()||"ASTRA-2026");resetVisualInterpolation();$("toggle").textContent="⏸ หยุด";render(true);updateHud(true)};
+$("resetBtn").onclick=()=>{runtime.reset($("seedInput").value.trim()||"ASTRA-2026");resetVisualInterpolation();resetCameraToDefault();$("toggle").textContent="⏸ หยุด";render(true);updateHud(true)};
 $("applySeedBtn").onclick=()=>{$("resetBtn").click()};
 $("speedSelect").onchange=e=>runtime.state.speed=clamp(Number(e.target.value)||1,1,8);
 $("providerSelect").onchange=e=>{runtime.setProviderMode(e.target.value);$("endpointInput").disabled=e.target.value!==PROVIDER_MODE.REMOTE;updateHud()};
