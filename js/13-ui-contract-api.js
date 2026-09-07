@@ -35,21 +35,48 @@ function refreshProviderOptions(){
   }
 }
 
-let last=0,acc=0,lastUi=0;
+const FRAME_PACING=Object.freeze({intervalMs:42,maxElapsedMs:100,maxTicksPerFrame:2,maxBacklogTicks:6});
+let last=0,tickBudget=0,lastUi=0;
+const frameStats={frames:0,totalTicks:0,maxTicksPerFrame:0,maxBacklogTicks:0,droppedTicks:0,lastElapsedMs:0};
+function resetFramePacing(){last=0;tickBudget=0;lastUi=0;for(const key of Object.keys(frameStats))frameStats[key]=0}
+function advanceSimulation(elapsedMs,{ignoreRunning=false}={}){
+  const elapsed=Math.min(FRAME_PACING.maxElapsedMs,Math.max(0,Number(elapsedMs)||0));
+  frameStats.lastElapsedMs=elapsed;
+  if(!runtime.state.running&&!ignoreRunning){tickBudget=0;return 0}
+  const requested=tickBudget+elapsed/FRAME_PACING.intervalMs*runtime.state.speed;
+  // A capped backlog prevents a background-tab pause or a slow mobile frame from
+  // turning into a large catch-up burst. Excess wall-clock work is deliberately
+  // dropped; the next frame starts from a bounded, playable schedule.
+  if(requested>FRAME_PACING.maxBacklogTicks)frameStats.droppedTicks+=requested-FRAME_PACING.maxBacklogTicks;
+  tickBudget=Math.min(FRAME_PACING.maxBacklogTicks,requested);
+  const ticks=Math.min(Math.floor(tickBudget+1e-9),FRAME_PACING.maxTicksPerFrame);
+  for(let i=0;i<ticks;i++)runtime.tickOnce();
+  tickBudget-=ticks;
+  frameStats.frames++;frameStats.totalTicks+=ticks;
+  frameStats.maxTicksPerFrame=Math.max(frameStats.maxTicksPerFrame,ticks);
+  frameStats.maxBacklogTicks=Math.max(frameStats.maxBacklogTicks,tickBudget);
+  return ticks;
+}
 function frame(ts){
-  const elapsed=Math.min(100,ts-last||16);last=ts;
-  if(runtime.state.running){
-    acc+=elapsed;const interval=42;
-    while(acc>=interval){for(let i=0;i<runtime.state.speed;i++)runtime.tickOnce();acc-=interval}
-  }
+  const elapsed=last?Math.max(0,ts-last):0;last=ts;
+  advanceSimulation(elapsed);
   render();if(ts-lastUi>180){updateHud();lastUi=ts}requestAnimationFrame(frame);
 }
+
+window.AstraLifeFramePacing=Object.freeze({
+  config:FRAME_PACING,
+  getStats:()=>({...frameStats,backlogTicks:tickBudget}),
+  reset:()=>{resetFramePacing();return {...frameStats,backlogTicks:tickBudget}},
+  // Diagnostic hook used by the browser acceptance test. It calls the exact same
+  // bounded scheduler without depending on wall-clock requestAnimationFrame timing.
+  advanceForTest:elapsedMs=>{const ticks=advanceSimulation(elapsedMs,{ignoreRunning:true});return {ticks,...frameStats,backlogTicks:tickBudget}}
+});
 
 window.AstraColony=Object.freeze({
   version:VERSION,protocols:PROTOCOL,
   step:()=>runtime.tickOnce(),
   runTicks:n=>runtime.runTicks(n),
-  reset:seed=>{runtime.reset(seed);updateHud();return runtime.snapshot()},
+  reset:seed=>{runtime.reset(seed);render(true);updateHud(true);return runtime.snapshot()},
   snapshot:()=>runtime.snapshot(),
   selfTest:()=>runtime.selfTest(),
   contractBundle:()=>runtime.contractBundle(),
@@ -64,4 +91,4 @@ window.AstraColony=Object.freeze({
   get runtime(){return runtime}
 });
 
-updateHud();requestAnimationFrame(frame);
+updateHud(true);requestAnimationFrame(frame);
