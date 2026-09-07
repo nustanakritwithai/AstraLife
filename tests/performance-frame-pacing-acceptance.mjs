@@ -28,6 +28,7 @@ try{
     runtime.runTicks(3);
     const afterRunTicks=runtime.state.tick;
     const tests={
+      cadenceIsSixTicksPerSecond:Math.abs(config.intervalMs-1000/6)<1e-9,
       maxTicksPerFrameAtMostTwo:stats.maxTicksPerFrame<=2&&stats.maxTicksPerFrame<=config.maxTicksPerFrame,
       boundedBacklog:stats.maxBacklogTicks<=config.maxBacklogTicks+1e-9&&stats.backlogTicks<=config.maxBacklogTicks+1e-9,
       noUnboundedCatchUp:stats.droppedTicks>0&&stats.frames===24&&stats.maxBacklogTicks<=config.maxBacklogTicks+1e-9,
