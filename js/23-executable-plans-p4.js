@@ -70,8 +70,8 @@
       case ACTION.GATHER: return [{kind:"observable-resource", resourceId:p.resourceId, resourceType:p.resourceType}, {kind:"interaction-range", range:CONFIG.interactRange+2}, {kind:"inventory-compatible", carryType:p.carryType}];
       case ACTION.DEPOSIT: return [{kind:"camp-visible"}, {kind:"camp-sync-range", range:CONFIG.campSyncRange}, {kind:"inventory-not-empty"}];
       case ACTION.CONSUME: return [{kind:"supply-reachable", resource:p.resource}];
-      case ACTION.BUILD: return [{kind:"camp-visible"}, {kind:"builder-role"}, {kind:"construction-zone", range:45}];
-      case ACTION.HEAL: return [{kind:"healer-role"}, {kind:"visible-target-agent", targetAgentId:p.targetAgentId}, {kind:"interaction-range", range:CONFIG.interactRange+5}];
+      case ACTION.BUILD: return [{kind:"camp-visible"}, {kind:"human-capability", capability:"build"}, {kind:"construction-zone", range:45}];
+      case ACTION.HEAL: return [{kind:"human-capability", capability:"heal"}, {kind:"visible-target-agent", targetAgentId:p.targetAgentId}, {kind:"interaction-range", range:CONFIG.interactRange+5}];
       case ACTION.SHARE: return [{kind:"communication-range-or-broadcast"}, {kind:"safe-structured-message"}];
       case ACTION.REST: return [{kind:"alive-agent"}];
       case ACTION.WAIT: default: return [{kind:"runtime-safe"}];
@@ -187,12 +187,12 @@
         break;
       }
       case ACTION.BUILD:
-        need(agent.role === "builder", "only builders can build");
+        need(humanCanAttempt(agent,"build"), "base role human cannot build");
         need(observation.camp.visible, "camp not observable for construction");
         need(observation.camp.distance <= 45, "outside construction zone");
         break;
       case ACTION.HEAL:{
-        need(agent.role === "healer", "only healers can heal");
+        need(humanCanAttempt(agent,"heal"), "base role human cannot heal");
         const p = peerVisible(observation, action.payload?.targetAgentId);
         need(!!p, "patient no longer visible");
         if(p)need(p.distance <= CONFIG.interactRange + 5, "patient outside interaction range");
@@ -211,7 +211,7 @@
     return {ok:errors.length === 0, errors:errors.slice(0,12)};
   }
 
-  function invalidate(agent, step, reason, state){
+  function invalidate(agent, step, reason, state, failureClass=actionFailureClass(step?.actionType,reason)){
     const plan = ensure(agent), budget = normalizeBudget(agent, state.tick);
     step.status = state.tick > step.timeoutTick ? "TIMEOUT" : "INVALIDATED";
     step.lastFailureReason = reason;
@@ -221,7 +221,7 @@
     plan.lastFailureReason = reason;
     plan.invalidatedActionFingerprints.push({tick:state.tick, stepId:step.stepId, fingerprint:step.actionFingerprint, reason});
     if(plan.invalidatedActionFingerprints.length > 16)plan.invalidatedActionFingerprints.shift();
-    if(step.actionType === ACTION.GATHER && step.target?.resourceId){
+    if(failureClass===ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE && step.actionType === ACTION.GATHER && step.target?.resourceId){
       const resourceKey = `resource:${step.target.resourceId}`;
       if(typeof runtime.memory.markBeliefStale === "function")runtime.memory.markBeliefStale(agent, resourceKey);
       else agent.mind.facts.delete(resourceKey);
@@ -232,7 +232,7 @@
     }else{
       agent.mind.replanAtTick = state.tick + 18;
     }
-    planTrace(agent, `P4 ${step.status}: ${reason}`);
+    planTrace(agent, `P4 ${step.status}: ${reason} [${failureClass}]`);
     runtime.memory.remember(agent, `plan step ${step.status.toLowerCase()}: ${reason}`, "learning", {lesson:"revalidate executable plan steps before acting", context:{kind:"p4-plan", stepId:step.stepId, actionType:step.actionType}});
     return plan.status;
   }
@@ -249,7 +249,7 @@
         step.status = "PENDING"; plan.status = "ACTIVE";
       }
     }else{
-      const status = invalidate(agent, step, outcome.message || "resolver rejected step", runtime.state);
+      const status = invalidate(agent, step, outcome.message || "resolver rejected step", runtime.state, outcome.failureClass);
       if(status === "REPLAN_REQUESTED" && step.onFailure === "RETRY_BOUNDED" && step.attemptCount < MAX_RETRIES_PER_STEP){
         step.status = "PENDING"; plan.status = "ACTIVE";
       }
@@ -275,7 +275,7 @@
     agent.runtime.lastDecisionResponse = normalized.raw;
     if(!checked.ok){
       const reason = checked.errors[0] || "plan precondition failed";
-      invalidate(agent, step, reason, state);
+      invalidate(agent, step, reason, state, actionFailureClass(step.actionType,reason));
       queue.enqueue(state.tick, agent.id, ACTION.WAIT, {}, `P4 blocked stale/invalid step: ${reason}`, {provider:"p4-plan", requestId:normalized.requestId, sourceTick:normalized.sourceTick, validated:true, p4PlanId:plan.planId, p4StepId:step.stepId, fallback:isFallback});
       agent.runtime.lastActionType = ACTION.WAIT;
       agent.runtime.lastProvider = normalized.provider;

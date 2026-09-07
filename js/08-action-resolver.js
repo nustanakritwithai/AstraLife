@@ -1,7 +1,7 @@
 class ActionResolver{
   constructor(memory,events){this.memory=memory;this.events=events}
   outcome(action,ok,message,significant=false,extra={}){
-    return Object.freeze({actionId:action.id,agentId:action.agentId,actionType:action.type,ok,message,significant,...extra});
+    return Object.freeze({actionId:action.id,agentId:action.agentId,actionType:action.type,ok,message,failureClass:actionFailureClass(action?.type,message,extra),significant,...extra});
   }
   resolve(state,actions){
     const outcomes=[],permitted=[];

@@ -16,8 +16,8 @@ class DecisionRequestFactory{
       .slice(0,CONFIG.maxRequestFacts).map(f=>({key:f.key,value:cloneJson(f.value),confidence:round1(f.confidence),lastSeenTick:f.lastSeenTick,source:f.source}));
     const recentEpisodes=agent.mind.memory.slice(-CONFIG.maxRequestMemories).map(m=>({...m}));
     const allowedTypes=[ACTION.MOVE,ACTION.GATHER,ACTION.DEPOSIT,ACTION.CONSUME,ACTION.REST,ACTION.SHARE,ACTION.WAIT];
-    if(agent.role==="builder")allowedTypes.push(ACTION.BUILD);
-    if(agent.role==="healer")allowedTypes.push(ACTION.HEAL);
+    if(humanCanAttempt(agent,"build"))allowedTypes.push(ACTION.BUILD);
+    if(humanCanAttempt(agent,"heal"))allowedTypes.push(ACTION.HEAL);
     const request={
       protocol:PROTOCOL.decisionRequest,
       requestId:`${state.simulationId}:${state.tick}:${agent.id}`,
@@ -25,7 +25,7 @@ class DecisionRequestFactory{
       simulation:{id:state.simulationId,seed:state.seed,tick:state.tick,day:state.day,alive:state.agents.filter(a=>a.alive).length,providerHint},
       agent:{
         id:agent.id,name:agent.name,role:agent.role,capacity:agent.capacity,
-        capabilities:{canBuild:agent.role==="builder",canHeal:agent.role==="healer",canScout:agent.role==="scout",canCarry:agent.role==="carrier"}
+        capabilities:{canBuild:humanCanAttempt(agent,"build"),canHeal:humanCanAttempt(agent,"heal"),canScout:agent.role==="scout",canCarry:agent.role==="carrier"}
       },
       observation:cloneJson(observation),
       memory:{

@@ -48,8 +48,7 @@
     if(a.type===ACTION.GATHER){const r=state.resourceById.get(p.resourceId);if(!r||r.amount<=.05)errors.push("RESOURCE_NOT_FOUND");else if(agent&&distance(agent.body,r)>CONFIG.interactRange+2)errors.push("OUT_OF_RANGE")}
     if(a.type===ACTION.HEAL){const t=state.agentById.get(p.targetAgentId);if(!t||!t.alive)errors.push("TARGET_AGENT_NOT_FOUND");else if(agent&&distance(agent.body,t.body)>CONFIG.interactRange+5)errors.push("OUT_OF_RANGE")}
     if(a.type===ACTION.DEPOSIT&&agent&&distance(agent.body,state.camp)>CONFIG.campSyncRange)errors.push("OUT_OF_RANGE");
-    if(a.type===ACTION.BUILD&&request.agent?.capabilities?.canBuild===false)errors.push("CAPABILITY_DENIED");
-    if(a.type===ACTION.HEAL&&request.agent?.capabilities?.canHeal===false)errors.push("CAPABILITY_DENIED");
+    if([ACTION.BUILD,ACTION.HEAL].includes(a.type)&&request.agent?.role!=="human")errors.push("BASE_ROLE_INVALID");
     return errors.length?{ok:false,errors}:base;
   };
 

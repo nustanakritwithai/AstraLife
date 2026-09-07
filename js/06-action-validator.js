@@ -43,6 +43,7 @@ class ActionContractValidator{
     if(!isPlainObject(a))return {ok:false,errors};
     need(a.protocol===PROTOCOL.action,"action protocol mismatch");
     need(request.actionContract.allowedTypes.includes(a.type),`action ${a.type} is not allowed for this agent`);
+    if([ACTION.BUILD,ACTION.HEAL].includes(a.type))need(request.agent.role==="human",`action ${a.type} requires base role human`);
     need(isPlainObject(a.payload),"action.payload must be an object");
     const payload=isPlainObject(a.payload)?a.payload:{};let sanitized={};
 
