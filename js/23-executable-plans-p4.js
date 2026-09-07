@@ -222,7 +222,9 @@
     plan.invalidatedActionFingerprints.push({tick:state.tick, stepId:step.stepId, fingerprint:step.actionFingerprint, reason});
     if(plan.invalidatedActionFingerprints.length > 16)plan.invalidatedActionFingerprints.shift();
     if(step.actionType === ACTION.GATHER && step.target?.resourceId){
-      agent.mind.facts.delete(`resource:${step.target.resourceId}`);
+      const resourceKey = `resource:${step.target.resourceId}`;
+      if(typeof runtime.memory.markBeliefStale === "function")runtime.memory.markBeliefStale(agent, resourceKey);
+      else agent.mind.facts.delete(resourceKey);
       agent.mind.target = null;
     }
     if(plan.status === "REPLAN_REQUESTED"){

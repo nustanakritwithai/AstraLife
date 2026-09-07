@@ -12,7 +12,8 @@ const result=await page.evaluate(()=>{
   const state=runtime.state;
   state.tick=12;
   const agent=state.agents[0];
-  agent.role='gatherer';
+  agent.role='human';
+  agent.emergentRole='gatherer';
   agent.alive=true;
   agent.inventory={type:null,amount:0};
   agent.mind.goal='gather_food';
