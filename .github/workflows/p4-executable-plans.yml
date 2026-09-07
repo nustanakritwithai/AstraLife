@@ -40,3 +40,5 @@ jobs:
         run: node tests/p4-1-human-capabilities-acceptance.mjs
       - name: Run mobile frame-pacing performance regression
         run: node tests/performance-frame-pacing-acceptance.mjs
+      - name: Run P18 two-second tick animation acceptance
+        run: node tests/p18-two-second-tick-animation-acceptance.mjs

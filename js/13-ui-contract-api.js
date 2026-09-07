@@ -35,48 +35,87 @@ function refreshProviderOptions(){
   }
 }
 
-const FRAME_PACING=Object.freeze({intervalMs:42,maxElapsedMs:100,maxTicksPerFrame:2,maxBacklogTicks:6});
-let last=0,tickBudget=0,lastUi=0;
-const frameStats={frames:0,totalTicks:0,maxTicksPerFrame:0,maxBacklogTicks:0,droppedTicks:0,lastElapsedMs:0};
-function resetFramePacing(){last=0;tickBudget=0;lastUi=0;for(const key of Object.keys(frameStats))frameStats[key]=0}
+const FRAME_PACING=Object.freeze({intervalMs:2000,simulationTicksPerSecond:.5,maxElapsedMs:100,maxTicksPerFrame:2,maxBacklogTicks:6});
+let simulationLast=0,tickBudget=0,lastUi=0;
+let visualPrevious=null,visualNext=null,visualElapsedMs=0;
+
+function captureVisualSnapshot(state){
+  const agents=new Map();
+  for(const agent of state.agents)agents.set(agent.id,{x:agent.body.x,y:agent.body.y,alive:agent.alive});
+  return {tick:state.tick,agents};
+}
+function resetVisualInterpolation(){
+  const snapshot=captureVisualSnapshot(runtime.state);
+  visualPrevious=snapshot;visualNext=snapshot;visualElapsedMs=0;
+}
+function rememberAuthoritativeTick(previous,next){
+  visualPrevious=previous;visualNext=next;visualElapsedMs=0;
+}
+function visualAlpha(){
+  return clamp(visualElapsedMs/FRAME_PACING.intervalMs,0,1);
+}
+function visualAgentPosition(agent){
+  const current={x:agent.body.x,y:agent.body.y};
+  const from=visualPrevious&&visualPrevious.agents.get(agent.id)||current;
+  const to=visualNext&&visualNext.agents.get(agent.id)||current;
+  const alpha=visualAlpha();
+  return {x:from.x+(to.x-from.x)*alpha,y:from.y+(to.y-from.y)*alpha};
+}
+function visualDiagnostics(){
+  return {alpha:visualAlpha(),intervalMs:FRAME_PACING.intervalMs,previousTick:visualPrevious?visualPrevious.tick:null,nextTick:visualNext?visualNext.tick:null,visualElapsedMs,stateTick:runtime.state.tick};
+}
+function resetFramePacing(){
+  simulationLast=0;tickBudget=0;lastUi=0;
+  for(const key of Object.keys(frameStats))frameStats[key]=0;
+}
 function advanceSimulation(elapsedMs,{ignoreRunning=false}={}){
   const elapsed=Math.min(FRAME_PACING.maxElapsedMs,Math.max(0,Number(elapsedMs)||0));
   frameStats.lastElapsedMs=elapsed;
   if(!runtime.state.running&&!ignoreRunning){tickBudget=0;return 0}
-  const requested=tickBudget+elapsed/FRAME_PACING.intervalMs*runtime.state.speed;
-  // A capped backlog prevents a background-tab pause or a slow mobile frame from
-  // turning into a large catch-up burst. Excess wall-clock work is deliberately
-  // dropped; the next frame starts from a bounded, playable schedule.
+  const scaledElapsed=elapsed*runtime.state.speed;
+  const requested=tickBudget+scaledElapsed/FRAME_PACING.intervalMs;
+  visualElapsedMs+=scaledElapsed;
   if(requested>FRAME_PACING.maxBacklogTicks)frameStats.droppedTicks+=requested-FRAME_PACING.maxBacklogTicks;
   tickBudget=Math.min(FRAME_PACING.maxBacklogTicks,requested);
   const ticks=Math.min(Math.floor(tickBudget+1e-9),FRAME_PACING.maxTicksPerFrame);
-  for(let i=0;i<ticks;i++)runtime.tickOnce();
+  for(let i=0;i<ticks;i++){
+    const previous=captureVisualSnapshot(runtime.state);
+    runtime.tickOnce();
+    const next=captureVisualSnapshot(runtime.state);
+    rememberAuthoritativeTick(previous,next);
+    visualElapsedMs=Math.max(0,visualElapsedMs-FRAME_PACING.intervalMs);
+  }
+  if(ticks===0)visualElapsedMs=Math.min(visualElapsedMs,FRAME_PACING.intervalMs);
   tickBudget-=ticks;
   frameStats.frames++;frameStats.totalTicks+=ticks;
   frameStats.maxTicksPerFrame=Math.max(frameStats.maxTicksPerFrame,ticks);
   frameStats.maxBacklogTicks=Math.max(frameStats.maxBacklogTicks,tickBudget);
   return ticks;
 }
-function frame(ts){
-  const elapsed=last?Math.max(0,ts-last):0;last=ts;
-  advanceSimulation(elapsed);
-  render();if(ts-lastUi>180){updateHud();lastUi=ts}requestAnimationFrame(frame);
+function simulationFrame(ts){
+  const elapsed=simulationLast?Math.max(0,ts-simulationLast):0;simulationLast=ts;
+  advanceSimulation(elapsed);requestAnimationFrame(simulationFrame);
+}
+function renderFrame(ts){
+  render();if(ts-lastUi>180){updateHud();lastUi=ts}requestAnimationFrame(renderFrame);
 }
 
 window.AstraLifeFramePacing=Object.freeze({
   config:FRAME_PACING,
   getStats:()=>({...frameStats,backlogTicks:tickBudget}),
-  reset:()=>{resetFramePacing();return {...frameStats,backlogTicks:tickBudget}},
+  getVisualState:()=>visualDiagnostics(),
+  getInterpolatedAgentPosition:agentId=>{const agent=runtime.state.agentById.get(Number(agentId));return agent?visualAgentPosition(agent):null},
+  reset:()=>{resetFramePacing();resetVisualInterpolation();return {...frameStats,backlogTicks:tickBudget}},
   // Diagnostic hook used by the browser acceptance test. It calls the exact same
   // bounded scheduler without depending on wall-clock requestAnimationFrame timing.
-  advanceForTest:elapsedMs=>{const ticks=advanceSimulation(elapsedMs,{ignoreRunning:true});return {ticks,...frameStats,backlogTicks:tickBudget}}
+  advanceForTest:elapsedMs=>{const ticks=advanceSimulation(elapsedMs,{ignoreRunning:true});return {ticks,...frameStats,backlogTicks:tickBudget,visual:visualDiagnostics()}}
 });
 
 window.AstraColony=Object.freeze({
   version:VERSION,protocols:PROTOCOL,
-  step:()=>runtime.tickOnce(),
-  runTicks:n=>runtime.runTicks(n),
-  reset:seed=>{runtime.reset(seed);render(true);updateHud(true);return runtime.snapshot()},
+  step:()=>{const previous=captureVisualSnapshot(runtime.state);const out=runtime.tickOnce();rememberAuthoritativeTick(previous,captureVisualSnapshot(runtime.state));return out},
+  runTicks:n=>{const previous=captureVisualSnapshot(runtime.state);const out=runtime.runTicks(n);rememberAuthoritativeTick(previous,captureVisualSnapshot(runtime.state));return out},
+  reset:seed=>{runtime.reset(seed);resetVisualInterpolation();render(true);updateHud(true);return runtime.snapshot()},
   snapshot:()=>runtime.snapshot(),
   selfTest:()=>runtime.selfTest(),
   contractBundle:()=>runtime.contractBundle(),
@@ -91,4 +130,4 @@ window.AstraColony=Object.freeze({
   get runtime(){return runtime}
 });
 
-updateHud(true);requestAnimationFrame(frame);
+resetFramePacing();resetVisualInterpolation();updateHud(true);requestAnimationFrame(simulationFrame);requestAnimationFrame(renderFrame);
