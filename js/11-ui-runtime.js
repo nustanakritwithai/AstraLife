@@ -1,10 +1,11 @@
 const CAMERA_CONFIG=Object.freeze({defaultZoomMultiplier:2.8,minZoomPadding:1,maxZoom:3.5,focusEasing:.22});
 const camera={center:{x:SPACE.width/2,y:SPACE.height/2},zoom:1,followSelected:true,initialized:false};
+let cameraSnapPending=false;
 
 function fitZoom(){return Math.min(CSS_W/SPACE.width,CSS_H/SPACE.height)}
 function defaultCloseZoom(){return clamp(Math.max(fitZoom()*CAMERA_CONFIG.defaultZoomMultiplier,CAMERA_CONFIG.minZoomPadding),fitZoom(),CAMERA_CONFIG.maxZoom)}
 function cameraBounds(zoom=camera.zoom){
-  const width=SPACE.width/zoom,height=SPACE.height/zoom;
+  const width=Math.min(SPACE.width,CSS_W/zoom),height=Math.min(SPACE.height,CSS_H/zoom);
   return {halfWidth:Math.min(SPACE.width/2,width/2),halfHeight:Math.min(SPACE.height/2,height/2),width,height};
 }
 function clampCameraCenter(center,zoom=camera.zoom){
@@ -43,11 +44,11 @@ function ensureCameraTarget(){
 }
 function focusCamera(id=runtime.selectedAgentId){
   const target=livingAgent(id);if(!target)return null;
-  runtime.selectedAgentId=target.id;camera.followSelected=true;camera.center=clampCameraCenter({x:visualAgentPosition(target).x,y:visualAgentPosition(target).y});return target;
+  runtime.selectedAgentId=target.id;camera.followSelected=true;camera.center=clampCameraCenter({x:visualAgentPosition(target).x,y:visualAgentPosition(target).y});cameraSnapPending=true;return target;
 }
 function resetCameraToDefault(){
   const target=livingAgent();if(target)runtime.selectedAgentId=target.id;
-  camera.zoom=defaultCloseZoom();camera.followSelected=true;camera.center=clampCameraCenter(target?{x:target.body.x,y:target.body.y}:{x:SPACE.width/2,y:SPACE.height/2});camera.initialized=true;
+  camera.zoom=defaultCloseZoom();camera.followSelected=true;camera.center=clampCameraCenter(target?{x:target.body.x,y:target.body.y}:{x:SPACE.width/2,y:SPACE.height/2});camera.initialized=true;cameraSnapPending=true;
   return target;
 }
 function fitCameraToMap(){
@@ -61,7 +62,8 @@ function zoomCameraBy(factor,localX=CSS_W/2,localY=CSS_H/2){return zoomCameraAt(
 function syncCameraToSelected(){
   const target=ensureCameraTarget();if(!target||!camera.followSelected)return target;
   const p=visualAgentPosition(target),next=clampCameraCenter(p);
-  camera.center={x:camera.center.x+(next.x-camera.center.x)*CAMERA_CONFIG.focusEasing,y:camera.center.y+(next.y-camera.center.y)*CAMERA_CONFIG.focusEasing};
+  camera.center=cameraSnapPending?next:{x:camera.center.x+(next.x-camera.center.x)*CAMERA_CONFIG.focusEasing,y:camera.center.y+(next.y-camera.center.y)*CAMERA_CONFIG.focusEasing};
+  cameraSnapPending=false;
   return target;
 }
 function terrainColor(type,night){
