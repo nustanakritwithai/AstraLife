@@ -67,26 +67,40 @@ function drawAgent(a,selected){
     if(a.mind.target){ctx.strokeStyle="#fff6";ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(a.body.x,a.body.y);ctx.lineTo(a.mind.target.x,a.mind.target.y);ctx.stroke();ctx.setLineDash([])}
   }
 }
-function render(){
+let renderDirty=true,lastRenderedTick=-1;
+let lastHudAt=0,lastHudTick=-1,lastHudState=null;
+let lastIntegrityAt=-Infinity,lastIntegrity={ok:true,errors:[]};
+let lastEventStore=null,lastEventId=-1;
+let lastInspectorState=null,lastInspectorTick=-1,lastInspectorAgentId=null;
+function markRenderDirty(){renderDirty=true}
+addEventListener("resize",markRenderDirty);
+
+function render(force=false){
   const state=runtime.state;const v=worldView();
+  if(!force&&!renderDirty&&lastRenderedTick===state.tick)return false;
   ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle="#020806";ctx.fillRect(0,0,CSS_W,CSS_H);
   ctx.save();ctx.translate(v.ox,v.oy);ctx.scale(v.scale,v.scale);
   drawBackground(state);for(const r of state.resources)drawResource(r);drawCamp(state);drawMessageEffects(state);
   const selected=runtime.selectedAgentId?state.agentById.get(runtime.selectedAgentId):null;
   for(const a of state.agents)drawAgent(a,a===selected);
   ctx.restore();
+  lastRenderedTick=state.tick;renderDirty=false;return true;
 }
 
 function formatEvent(event){return `T${event.tick} · ${event.message}`}
-function updateEventLog(){
+function updateEventLog(force=false){
   const events=runtime.events.recent(24).reverse();
+  const latestId=events.at(-1)?.id??-1;
+  if(!force&&lastEventStore===runtime.events&&lastEventId===latestId)return false;
   ui.eventLog.innerHTML=events.map(e=>`<div class="${e.severity}">${escapeHtml(formatEvent(e))}</div>`).join("")||"<div>ยังไม่มีเหตุการณ์</div>";
+  lastEventStore=runtime.events;lastEventId=latestId;return true;
 }
 function escapeHtml(text){return String(text).replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]))}
 function setBar(el,value){el.style.width=`${clamp(value,0,100)}%`}
-function updateInspector(){
+function updateInspector(force=false){
   const a=runtime.selectedAgentId?runtime.state.agentById.get(runtime.selectedAgentId):null;
-  if(!a){ui.inspector.style.display="none";return}
+  if(!force&&lastInspectorState===runtime.state&&lastInspectorTick===runtime.state.tick&&lastInspectorAgentId===runtime.selectedAgentId)return false;
+  if(!a){ui.inspector.style.display="none";lastInspectorState=runtime.state;lastInspectorTick=runtime.state.tick;lastInspectorAgentId=runtime.selectedAgentId;return true}
   ui.inspector.style.display="block";
   ui.iname.textContent=`${a.name} · ${a.role.toUpperCase()}${a.alive?"":" · DEAD"}`;
   ui.imeta.textContent=`ID ${a.id} · session ${a.runtime.providerSessionId} · carry ${a.inventory.type||"-"} ${round1(a.inventory.amount)}/${a.capacity} · facts ${a.mind.facts.size} · failed ${a.mind.failedActions}`;
@@ -104,13 +118,19 @@ function updateInspector(){
     .map(f=>`${f.key} = ${JSON.stringify(f.value)} [c=${f.confidence.toFixed(2)} src=${f.source}]`).join("\n")||"(empty symbolic model)";
   ui.imem.textContent=a.mind.memory.slice(-10).reverse().map(m=>`T${m.tick} ${m.kind}: ${m.text}`).join("\n")||"(empty memory)";
   ui.itrace.innerHTML=a.runtime.trace.slice(-8).reverse().map(t=>`<div>T${t.tick} ${escapeHtml(t.phase)} · ${escapeHtml(t.text)}</div>`).join("");
+  lastInspectorState=runtime.state;lastInspectorTick=runtime.state.tick;lastInspectorAgentId=runtime.selectedAgentId;return true;
 }
 function updatePipeline(){
   document.querySelectorAll(".stage").forEach((el,i)=>{el.classList.toggle("done",i<=runtime.phaseIndex);el.classList.toggle("active",i===runtime.phaseIndex)});
   ui.runtimeMeta.textContent=`seed ${runtime.seed} · ${runtime.phase} · ${runtime.decisionRouter.label()} · ${PROTOCOL.action}`;
 }
-function updateHud(){
-  const s=runtime.state;const alive=s.agents.filter(a=>a.alive).length;const test=runtime.selfTest();
+function updateHud(force=false){
+  const s=runtime.state,now=performance.now();
+  if(!force&&lastHudState===s&&lastHudTick===s.tick&&now-lastHudAt<180)return false;
+  lastHudAt=now;lastHudTick=s.tick;lastHudState=s;
+  const alive=s.agents.filter(a=>a.alive).length;
+  if(force||now-lastIntegrityAt>=1000){lastIntegrity=runtime.selfTest();lastIntegrityAt=now}
+  const test=lastIntegrity;
   ui.alive.textContent=alive;ui.day.textContent=s.day;ui.tick.textContent=s.tick;ui.food.textContent=Math.floor(s.stock.food);ui.water.textContent=Math.floor(s.stock.water);
   ui.wood.textContent=Math.floor(s.stock.wood);ui.shelter.textContent=s.camp.shelter;ui.knowledge.textContent=runtime.unionFactCount();ui.coop.textContent=`${Math.round(runtime.cooperationRate())}%`;
   const pm=runtime.decisionRouter.metrics;
@@ -119,22 +139,22 @@ function updateHud(){
   ui.integrity.textContent=test.ok?"PASS":"FAIL";ui.integrity.className=test.ok?"ok":"bad";
   ui.providerBadge.className=`provider-badge${runtime.decisionRouter.pendingCount()?" pending":pm.providerErrors||pm.invalid?" error":""}`;
   ui.providerBadge.querySelector("span").textContent=`${runtime.decisionRouter.label()} · v1 · ${runtime.decisionRouter.pendingCount()} pending`;
-  updatePipeline();updateEventLog();updateInspector();
+  updatePipeline();updateEventLog(force);updateInspector(force);return true;
 }
 function pickAgent(clientX,clientY){
   const p=screenToWorld(clientX,clientY);let best=null,bestD=18;
   for(const a of runtime.state.agents){const d=Math.hypot(a.body.x-p.x,a.body.y-p.y);if(d<bestD){bestD=d;best=a}}
-  if(best){runtime.selectedAgentId=best.id;updateInspector()}
+  if(best){runtime.selectedAgentId=best.id;renderDirty=true;updateInspector(true);render(true)}
 }
 canvas.addEventListener("click",e=>pickAgent(e.clientX,e.clientY));
 canvas.addEventListener("touchstart",e=>{const t=e.touches[0];if(t)pickAgent(t.clientX,t.clientY)},{passive:true});
 
 $("toggle").onclick=e=>{runtime.state.running=!runtime.state.running;e.currentTarget.textContent=runtime.state.running?"⏸ หยุด":"▶ เดินต่อ"};
-$("stepBtn").onclick=()=>{runtime.tickOnce();render();updateHud()};
-$("addBtn").onclick=()=>{runtime.spawnAgents(20);updateHud()};
-$("stormBtn").onclick=()=>{runtime.triggerStorm();updateHud()};
-$("rumorBtn").onclick=()=>{const out=runtime.injectRumor();if(!out.ok&&out.error)runtime.events.emit(runtime.state.tick,"RUMOR",out.error,{},"danger");updateHud()};
-$("resetBtn").onclick=()=>{runtime.reset($("seedInput").value.trim()||"ASTRA-2026");$("toggle").textContent="⏸ หยุด";render();updateHud()};
+$("stepBtn").onclick=()=>{runtime.tickOnce();render(true);updateHud(true)};
+$("addBtn").onclick=()=>{runtime.spawnAgents(20);renderDirty=true;render(true);updateHud(true)};
+$("stormBtn").onclick=()=>{runtime.triggerStorm();renderDirty=true;render(true);updateHud(true)};
+$("rumorBtn").onclick=()=>{const out=runtime.injectRumor();if(!out.ok&&out.error)runtime.events.emit(runtime.state.tick,"RUMOR",out.error,{},"danger");renderDirty=true;render(true);updateHud(true)};
+$("resetBtn").onclick=()=>{runtime.reset($("seedInput").value.trim()||"ASTRA-2026");$("toggle").textContent="⏸ หยุด";render(true);updateHud(true)};
 $("applySeedBtn").onclick=()=>{$("resetBtn").click()};
 $("speedSelect").onchange=e=>runtime.state.speed=clamp(Number(e.target.value)||1,1,8);
 $("providerSelect").onchange=e=>{runtime.setProviderMode(e.target.value);$("endpointInput").disabled=e.target.value!==PROVIDER_MODE.REMOTE;updateHud()};

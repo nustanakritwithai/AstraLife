@@ -24,12 +24,14 @@ class WorldRuntime{
     };
   }
   reset(seed=this.seed){
+    if(typeof resetFramePacing==="function")resetFramePacing();
     this.seed=String(seed||"ASTRA-2026");this.rng=new SeededRandom(this.seed);this.planner.rng=this.rng;
     this.events=new EventStore();this.resolver.events=this.events;this.environment.events=this.events;
     this.queue=new ActionQueue();this.state=this.blankState();this.selectedAgentId=null;this.decisionRouter.reset(this.events);
     this.generateTerrain();this.generateResources();this.spawnAgents(CONFIG.initialAgents);
     this.events.emit(0,"WORLD_RESET",`สร้างโลก V0.4 ด้วย seed “${this.seed}” · Agents ${CONFIG.initialAgents} คน · Social ${PROTOCOL.communication}`,{seed:this.seed},"important");
     this.phase="COMMIT";this.phaseIndex=7;
+    if(typeof markRenderDirty==="function")markRenderDirty();
   }
   generateTerrain(){
     const types=["forest","meadow","rock","wetland"];
@@ -74,6 +76,7 @@ class WorldRuntime{
       const a=this.createAgent();this.state.agents.push(a);this.state.agentById.set(a.id,a);
     }
     if(this.state.tick>0)this.events.emit(this.state.tick,"SPAWN",`เพิ่ม Astra Agents ${n} คนเข้าสู่โลก`,{count:n},"important");
+    if(typeof markRenderDirty==="function")markRenderDirty();
   }
   setPhase(name,index){this.phase=name;this.phaseIndex=index}
   tickOnce(){
@@ -113,10 +116,9 @@ class WorldRuntime{
 
     this.setPhase("COMMIT",7);
     state.effects.messages=state.effects.messages.filter(e=>state.tick-e.bornTick<15);
-    if(state.tick%100===0){
-      const test=this.selfTest();
-      if(!test.ok)this.events.emit(state.tick,"INTEGRITY",`Runtime integrity failed: ${test.errors.join("; ")}`,{},"danger");
-    }
+    // Integrity checks are intentionally kept out of the deterministic tick hot path.
+    // Callers can still use runtime.selfTest() explicitly; the UI schedules it at a
+    // low frequency so a normal simulation tick never pauses for a full-world scan.
     return outcomes;
   }
   runTicks(n){
@@ -128,12 +130,13 @@ class WorldRuntime{
   triggerStorm(){
     this.state.stormTicks=CONFIG.stormDurationTicks;
     this.events.emit(this.state.tick,"STORM",`พายุเริ่มโจมตีเป็นเวลา ${CONFIG.stormDurationTicks} ticks — Shelter และการร่วมมือมีความสำคัญ`,{},"danger");
+    if(typeof markRenderDirty==="function")markRenderDirty();
   }
   injectRumor(agentId=this.selectedAgentId){
     const agent=this.state.agentById.get(agentId);if(!agent||!agent.alive)return {ok:false,error:"select a living agent first"};
     const fakeId=900000+agent.id;const payload={intent:"REPORT",targetAgentId:null,replyTo:null,urgency:.76,text:"I found a rich water source nearby",facts:[{key:`resource:${fakeId}`,value:{id:fakeId,type:"water",x:clamp(agent.body.x+42,10,SPACE.width-10),y:clamp(agent.body.y+18,10,SPACE.height-10),amountBand:"high"},confidence:.93}]};
     const action={id:this.queue.nextId++,tick:this.state.tick,agentId:agent.id,type:ACTION.SHARE,payload:deepFreeze(cloneJson(payload)),reason:"manual rumor stress test",priority:PRIORITY.SHARE,meta:{validated:true,provider:"debug-social"}};
-    const outcome=this.resolver.resolve(this.state,[action])[0];this.memory.learn(agent,outcome);this.events.emit(this.state.tick,"RUMOR",`${agent.name} ปล่อยข่าวลือเรื่องแหล่งน้ำปลอม เพื่อทดสอบ Trust`,{agentId:agent.id},"important");return outcome;
+    const outcome=this.resolver.resolve(this.state,[action])[0];this.memory.learn(agent,outcome);this.events.emit(this.state.tick,"RUMOR",`${agent.name} ปล่อยข่าวลือเรื่องแหล่งน้ำปลอม เพื่อทดสอบ Trust`,{agentId:agent.id},"important");if(typeof markRenderDirty==="function")markRenderDirty();return outcome;
   }
   averageCredibility(){const alive=this.state.agents.filter(a=>a.alive);return alive.length?alive.reduce((sum,a)=>sum+a.social.reputation.credibility,0)/alive.length:0}
   verifiedClaims(){return this.state.agents.reduce((sum,a)=>sum+a.social.reputation.claimsVerified,0)}
