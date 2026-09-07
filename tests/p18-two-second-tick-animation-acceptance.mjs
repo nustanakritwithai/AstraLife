@@ -28,6 +28,7 @@ try{
     const visualHalf=scheduler.getVisualState();
     const positionHalf=scheduler.getInterpolatedAgentPosition(agentId);
     const bodyAfterHalf={...runtime.state.agents[0].body};
+    const tickStableDuringHalf=runtime.state.tick===afterHalfTick;
     const renderSecond=render();
     const tickBeforeApi=runtime.state.tick;
     runtime.tickOnce();
@@ -42,7 +43,7 @@ try{
       noTickDuringInterpolationWindow:afterHalfTick===afterTick,
       alphaInRange:.45<=visualHalf.alpha&&visualHalf.alpha<=.55,
       snapshotTicksAdvanceTogether:atTickVisual.previousTick===startTick&&atTickVisual.nextTick===afterTick,
-      interpolationDoesNotMutateWorldState:bodyStable&&runtime.state.tick===afterHalfTick,
+      interpolationDoesNotMutateWorldState:bodyStable&&tickStableDuringHalf,
       interpolatedPositionIsFinite:positionFinite,
       renderContinuesWithoutTick:renderFirst===true&&renderSecond===true,
       tickStepApiPreserved:afterStep===tickBeforeApi+1&&afterRunTicks===tickBeforeApi+4,
