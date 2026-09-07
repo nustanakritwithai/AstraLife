@@ -37,6 +37,7 @@ function refreshProviderOptions(){
 
 const FRAME_PACING=Object.freeze({intervalMs:2000,simulationTicksPerSecond:.5,maxElapsedMs:100,maxTicksPerFrame:2,maxBacklogTicks:6});
 let simulationLast=0,tickBudget=0,lastUi=0;
+const frameStats={frames:0,totalTicks:0,maxTicksPerFrame:0,maxBacklogTicks:0,droppedTicks:0,lastElapsedMs:0};
 let visualPrevious=null,visualNext=null,visualElapsedMs=0;
 
 function captureVisualSnapshot(state){
