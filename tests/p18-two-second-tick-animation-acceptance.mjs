@@ -18,12 +18,12 @@ try{
     const startTick=runtime.state.tick;
     const agentId=runtime.state.agents[0].id;
     const firstBody={...runtime.state.agents[0].body};
-    scheduler.advanceForTest(2000);
+    for(let i=0;i<20;i++)scheduler.advanceForTest(100);
     const afterTick=runtime.state.tick;
     const atTickVisual=scheduler.getVisualState();
     const bodyAtTick={...runtime.state.agents[0].body};
     const renderFirst=render();
-    const halfway=scheduler.advanceForTest(1000);
+    let halfway;for(let i=0;i<10;i++)halfway=scheduler.advanceForTest(100);
     const afterHalfTick=runtime.state.tick;
     const visualHalf=scheduler.getVisualState();
     const positionHalf=scheduler.getInterpolatedAgentPosition(agentId);

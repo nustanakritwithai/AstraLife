@@ -78,7 +78,8 @@ addEventListener("resize",markRenderDirty);
 
 function render(force=false){
   const state=runtime.state;const v=worldView();
-  // Render is independent from authoritative ticks: interpolation and effects advance every frame.\n  // Do not gate this on state.tick or renderDirty; a two-second world interval still needs continuous animation.
+  // Render is independent from authoritative ticks: interpolation and effects advance every frame.
+  // Do not gate this on state.tick or renderDirty; a two-second world interval still needs continuous animation.
   ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle="#020806";ctx.fillRect(0,0,CSS_W,CSS_H);
   ctx.save();ctx.translate(v.ox,v.oy);ctx.scale(v.scale,v.scale);
   drawBackground(state);for(const r of state.resources)drawResource(r);drawCamp(state);drawMessageEffects(state);
