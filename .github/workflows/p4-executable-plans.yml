@@ -36,3 +36,5 @@ jobs:
         run: node tests/p3-world-model-acceptance.mjs
       - name: Run P4 executable-plan acceptance
         run: node tests/p4-executable-plans-acceptance.mjs
+      - name: Run P4.1 human-capability acceptance
+        run: node tests/p4-1-human-capabilities-acceptance.mjs
