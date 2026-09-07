@@ -35,7 +35,9 @@ function refreshProviderOptions(){
   }
 }
 
-const FRAME_PACING=Object.freeze({intervalMs:42,maxElapsedMs:100,maxTicksPerFrame:2,maxBacklogTicks:6});
+const SIMULATION_TICKS_PER_SECOND=6;
+const SIMULATION_INTERVAL_MS=1000/SIMULATION_TICKS_PER_SECOND;
+const FRAME_PACING=Object.freeze({intervalMs:SIMULATION_INTERVAL_MS,maxElapsedMs:100,maxTicksPerFrame:2,maxBacklogTicks:6});
 let last=0,tickBudget=0,lastUi=0;
 const frameStats={frames:0,totalTicks:0,maxTicksPerFrame:0,maxBacklogTicks:0,droppedTicks:0,lastElapsedMs:0};
 function resetFramePacing(){last=0;tickBudget=0;lastUi=0;for(const key of Object.keys(frameStats))frameStats[key]=0}
