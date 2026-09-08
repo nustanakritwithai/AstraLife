@@ -41,6 +41,7 @@
         maxReplans: MAX_REPLANS,
         maxRetriesPerStep: MAX_RETRIES_PER_STEP,
         lastFailureReason: null,
+        lastFailureClass: null,
         invalidatedActionFingerprints: []
       };
     }
@@ -114,6 +115,7 @@
       provider: normalized.provider || "unknown",
       confidence: clamp(Number(normalized.confidence ?? .5), 0, 1),
       lastFailureReason: null,
+      lastFailureClass: null,
       actionFingerprint: sig(action)
     };
     if(!VALID_ON_FAILURE.has(step.onFailure))step.onFailure = "ABORT";
@@ -135,6 +137,7 @@
     plan.maxReplans = MAX_REPLANS;
     plan.maxRetriesPerStep = MAX_RETRIES_PER_STEP;
     plan.lastFailureReason = null;
+    plan.lastFailureClass = null;
     planTrace(agent, `P4 created ${step.actionType} step ${step.stepId}`);
     return plan;
   }
@@ -215,11 +218,13 @@
     const plan = ensure(agent), budget = normalizeBudget(agent, state.tick);
     step.status = state.tick > step.timeoutTick ? "TIMEOUT" : "INVALIDATED";
     step.lastFailureReason = reason;
+    step.lastFailureClass = failureClass;
     step.lastValidatedTick = state.tick;
     plan.status = budget.replanCount >= MAX_REPLANS ? "ABORTED" : "REPLAN_REQUESTED";
     plan.updatedTick = state.tick;
     plan.lastFailureReason = reason;
-    plan.invalidatedActionFingerprints.push({tick:state.tick, stepId:step.stepId, fingerprint:step.actionFingerprint, reason});
+    plan.lastFailureClass = failureClass;
+    plan.invalidatedActionFingerprints.push({tick:state.tick, stepId:step.stepId, fingerprint:step.actionFingerprint, reason, failureClass});
     if(plan.invalidatedActionFingerprints.length > 16)plan.invalidatedActionFingerprints.shift();
     if(failureClass===ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE && step.actionType === ACTION.GATHER && step.target?.resourceId){
       const resourceKey = `resource:${step.target.resourceId}`;
