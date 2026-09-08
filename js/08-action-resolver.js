@@ -1,7 +1,7 @@
 class ActionResolver{
   constructor(memory,events){this.memory=memory;this.events=events}
   outcome(action,ok,message,significant=false,extra={}){
-    return Object.freeze({actionId:action.id,agentId:action.agentId,actionType:action.type,ok,message,failureClass:actionFailureClass(action?.type,message,extra),significant,...extra});
+    return Object.freeze({actionId:action.id,agentId:action.agentId,actionType:action.type,ok,message,failureClass:ok?null:actionFailureClass(action?.type,message,extra),significant,...extra});
   }
   resolve(state,actions){
     const outcomes=[],permitted=[];
@@ -45,7 +45,7 @@ class ActionResolver{
   resolveGather(state,agent,action){
     const r=state.resourceById.get(action.payload.resourceId);
     if(!r||r.amount<=.05)return this.outcome(action,false,"resource depleted or unknown",true,{resourceId:action.payload.resourceId,invalidateFact:true});
-    if(distance(agent.body,r)>CONFIG.interactRange+2)return this.outcome(action,false,"resource outside interaction range",false,{resourceId:action.payload.resourceId,invalidateFact:true});
+    if(distance(agent.body,r)>CONFIG.interactRange+2)return this.outcome(action,false,"resource outside interaction range",false,{resourceId:action.payload.resourceId});
     const carryType=action.payload.carryType;
     if(agent.inventory.amount>0&&agent.inventory.type!==carryType)return this.outcome(action,false,"inventory contains another resource",false,{resourceId:r.id});
     const room=agent.capacity-agent.inventory.amount;
