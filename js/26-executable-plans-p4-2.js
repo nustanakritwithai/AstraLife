@@ -38,7 +38,9 @@
       assumptions: Array.isArray(spec?.assumptions) ? copy(spec.assumptions).slice(0,12) : [],
       predictionStatus: spec?.prediction ? "PENDING" : "NONE",
       outcome: null,
-      actionFingerprint: sig(action)
+      actionFingerprint: sig(action),
+      currentExecution: null,
+      resolvedActionIds: []
     };
   }
 
@@ -99,7 +101,11 @@
       provider:"p4.2",
       validated:true,
       p4PlanId:plan?.planId || null,
-      p4StepId:step?.stepId || null,
+      // A safety WAIT is not the executable plan step.  It must never settle
+      // the failed step as a successful WAIT outcome.
+      p4StepId:null,
+      p4Fallback:true,
+      p4OutcomeEligible:false,
       p4HardeningVersion:VERSION
     });
     agent.runtime.lastActionType=ACTION.WAIT;
@@ -117,31 +123,40 @@
     plan.lastFailureClass=step.lastFailureClass;
     plan.updatedTick=state.tick;
     plan.invalidatedActionFingerprints=Array.isArray(plan.invalidatedActionFingerprints)?plan.invalidatedActionFingerprints:[];
-    if(!plan.invalidatedActionFingerprints.some(item=>item.fingerprint===step.actionFingerprint)){
-      plan.invalidatedActionFingerprints.push({tick:state.tick,stepId:step.stepId,fingerprint:step.actionFingerprint,reason,failureClass:step.lastFailureClass});
-    }
-    if(plan.invalidatedActionFingerprints.length>32)plan.invalidatedActionFingerprints.shift();
 
     if(state.tick>step.timeoutTick){
       step.status="TIMEOUT"; plan.status="TIMEOUT";
+      step.currentExecution=null;
+    }else if(step.lastFailureClass!==ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE && step.onFailure==="RETRY_BOUNDED" && step.retryCount<plan.maxRetriesPerStep){
+      // A bounded retry reuses the validated action fingerprint.  It is not
+      // stale merely because one resolver attempt failed.
+      step.retryCount++;
+      step.status="PENDING";
+      step.currentExecution=null;
+      plan.status="ACTIVE";
     }else if(step.lastFailureClass===ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE){
       step.status="INVALIDATED";
+      if(!plan.invalidatedActionFingerprints.some(item=>item.fingerprint===step.actionFingerprint)){
+        plan.invalidatedActionFingerprints.push({tick:state.tick,stepId:step.stepId,fingerprint:step.actionFingerprint,reason,failureClass:step.lastFailureClass});
+      }
       if(plan.replanCount<plan.maxReplans){
         plan.replanCount++;
         plan.status="REPLAN_REQUESTED";
       }else{
         plan.status="ABORTED";
       }
-    }else if(step.onFailure==="RETRY_BOUNDED" && step.retryCount<plan.maxRetriesPerStep){
-      step.retryCount++;
-      step.status="PENDING";
-      plan.status="ACTIVE";
     }else if(step.onFailure==="REPLAN" && plan.replanCount<plan.maxReplans){
       step.status="INVALIDATED";
+      if(!plan.invalidatedActionFingerprints.some(item=>item.fingerprint===step.actionFingerprint)){
+        plan.invalidatedActionFingerprints.push({tick:state.tick,stepId:step.stepId,fingerprint:step.actionFingerprint,reason,failureClass:step.lastFailureClass});
+      }
       plan.replanCount++;
       plan.status="REPLAN_REQUESTED";
     }else{
       step.status=step.lastFailureClass==="TIMEOUT"?"TIMEOUT":"ABORTED";
+      if(!plan.invalidatedActionFingerprints.some(item=>item.fingerprint===step.actionFingerprint)){
+        plan.invalidatedActionFingerprints.push({tick:state.tick,stepId:step.stepId,fingerprint:step.actionFingerprint,reason,failureClass:step.lastFailureClass});
+      }
       plan.status=step.status;
     }
     trace(agent, `P4.2 ${step.status}: ${reason} [${step.lastFailureClass}]`);
@@ -153,6 +168,17 @@
     const step=plan && stepFor(plan, outcome?.p4StepId);
     if(!step)return null;
 
+    // Resolver outcomes are authoritative only for the exact queued
+    // execution.  This rejects fallback WAITs, stale responses, and duplicate
+    // delivery without mutating a later retry or step.
+    const execution=step.currentExecution;
+    const actionId=String(outcome?.actionId || "");
+    if(outcome?.p4PlanId && outcome.p4PlanId!==plan.planId)return null;
+    if(outcome?.p4OutcomeEligible===false || !execution || !execution.executionId || !actionId || actionId!==String(execution.actionId))return null;
+    if(outcome?.p4ExecutionId!==execution.executionId)return null;
+    if(outcome.actionType!==step.actionType || execution.actionFingerprint!==step.actionFingerprint)return null;
+    if(step.resolvedActionIds?.includes(execution.executionId))return copy(plan);
+
     const resolvedTick=now();
     const failureClass=outcome.ok ? null : (outcome.failureClass || actionFailureClass(step.actionType,outcome.message));
     step.outcome={
@@ -163,6 +189,10 @@
       actual:copy(outcome.actual || {ok:!!outcome.ok,message:String(outcome.message || "")}),
       error:copy(outcome.error || (outcome.ok ? null : {failureClass,message:String(outcome.message || "")}))
     };
+    step.resolvedActionIds=Array.isArray(step.resolvedActionIds)?step.resolvedActionIds:[];
+    step.resolvedActionIds.push(execution.executionId);
+    if(step.resolvedActionIds.length>8)step.resolvedActionIds.shift();
+    step.currentExecution=null;
     step.predictionStatus=step.prediction ? (failureClass==="PREDICTION_STALE" ? "STALE" : "RESOLVED") : "NONE";
     if(outcome.ok){
       step.status="COMPLETED";
@@ -227,9 +257,16 @@
     const step=current(plan);
     if(!step)return {queued:false,worldMutation:false,reason:"plan has no current step"};
     const action=source.action || step.action;
+    if(plan.status!=="ACTIVE"){
+      return {queued:false,worldMutation:false,reason:`P4.2 plan is ${plan.status}`};
+    }
     if(TERMINAL.has(step.status) || invalidated(plan,action)){
       return waitFor(runtime.state,agent,queue,"P4.2 blocked stale/terminal action",plan,step);
     }
+    if(action.type!==step.actionType || sig(action)!==step.actionFingerprint){
+      return waitFor(runtime.state,agent,queue,"P4.2 rejected action override",plan,step);
+    }
+    if(step.status==="EXECUTING" && runtime.state.tick<=step.timeoutTick)return {queued:false,worldMutation:false,reason:"P4.2 step already executing"};
     const check=validate(agent,step,runtime.observer.capture(runtime.state,agent),runtime.state);
     if(!check.ok){
       const failureClass=check.errors.some(error=>error.includes("no longer observable")) ? ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE : actionFailureClass(step.actionType,check.errors[0]);
@@ -240,17 +277,21 @@
     step.attemptCount++;
     step.lastValidatedTick=runtime.state.tick;
     const provider=source.provider || "p4.2";
-    queue.enqueue(runtime.state.tick,agent.id,action.type,action.payload,source.reason || "P4.2 executable step",{
+    const executionId=`${plan.planId}:${step.stepId}:${step.attemptCount}`;
+    const queued=queue.enqueue(runtime.state.tick,agent.id,action.type,action.payload,source.reason || "P4.2 executable step",{
       provider,
       requestId:source.requestId || null,
       sourceTick:source.sourceTick ?? runtime.state.tick,
       confidence:source.confidence ?? null,
       validated:true,
       fallback:false,
+      p4OutcomeEligible:true,
+      p4ExecutionId:executionId,
       p4PlanId:plan.planId,
       p4StepId:step.stepId,
       p4HardeningVersion:VERSION
     });
+    step.currentExecution={actionId:queued.id,actionType:action.type,actionFingerprint:step.actionFingerprint,executionId,attempt:step.attemptCount,queuedTick:runtime.state.tick};
     agent.runtime.lastActionType=action.type;
     agent.runtime.lastProvider=provider;
     agent.runtime.providerStatus="p4.2-plan-accepted";
@@ -262,6 +303,11 @@
     const plan=planFor(task?.agent);
     if(!plan)return originalApplyAccepted.call(this,state,task,normalized,queue,isFallback);
     const step=current(plan);
+    if(plan.status==="COMPLETED" || plan.status==="REPLAN_REQUESTED" || plan.status==="ABORTED" || plan.status==="TIMEOUT" || !step){
+      task.agent.mind.lastHardenedPlan=copy(plan);
+      task.agent.mind.executablePlan=null;
+      return originalApplyAccepted.call(this,state,task,normalized,queue,isFallback);
+    }
     const incoming=normalized?.action || {type:ACTION.WAIT,payload:{}};
     if(!step || TERMINAL.has(step.status) || invalidated(plan,incoming) || sig(incoming)!==step.actionFingerprint){
       waitFor(state,task.agent,queue,"P4.2 rejected stale provider action",plan,step);
@@ -272,7 +318,10 @@
 
   const originalLearn=MemorySystem.prototype.learn;
   MemorySystem.prototype.learn=function(agent,outcome){
-    const result=originalLearn.call(this,agent,outcome);
+    // P4.0 is wrapped underneath this hook.  Hide P4.2 identity from it so
+    // its legacy single-step learner cannot advance this multi-step plan.
+    const legacyOutcome=planFor(agent)&&outcome&&outcome.p4StepId?({...outcome,p4PlanId:undefined,p4StepId:undefined}):outcome;
+    const result=originalLearn.call(this,agent,legacyOutcome);
     applyOutcome(agent,outcome);
     return result;
   };

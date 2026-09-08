@@ -321,7 +321,7 @@
 
   const oldResolve = ActionResolver.prototype.outcome;
   ActionResolver.prototype.outcome = function(action, ok, message, significant=false, extra={}){
-    return oldResolve.call(this, action, ok, message, significant, {...extra, p4PlanId:action.meta?.p4PlanId || null, p4StepId:action.meta?.p4StepId || null});
+    return oldResolve.call(this, action, ok, message, significant, {...extra, p4PlanId:action.meta?.p4PlanId || null, p4StepId:action.meta?.p4StepId || null, p4ExecutionId:action.meta?.p4ExecutionId || null});
   };
 
   const oldPersistent = AgentStateBoundaryV051.persistent;
