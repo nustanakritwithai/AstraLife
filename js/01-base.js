@@ -49,11 +49,12 @@ const RESOURCE_TYPES = Object.freeze(["water","berry","tree","herb"]);
 const CARRY_TYPES = Object.freeze(["water","food","wood","medicine"]);
 const PROVIDER_RING = Object.freeze({local:"#77f2ad","astra-sim":"#d393ff",remote:"#75c9ff"});
 const HUMAN_CAPABILITIES = Object.freeze({canBuild:true,canHeal:true});
-const ACTION_FAILURE_CLASS = Object.freeze({TARGET_UNAVAILABLE:"TARGET_UNAVAILABLE",ACTOR_UNAVAILABLE:"ACTOR_UNAVAILABLE",OUT_OF_RANGE:"OUT_OF_RANGE",INVENTORY_FULL:"INVENTORY_FULL",INCOMPATIBLE_CARGO:"INCOMPATIBLE_CARGO",PRECONDITION:"PRECONDITION",UNVALIDATED:"UNVALIDATED"});
+const ACTION_FAILURE_CLASS = Object.freeze({TARGET_UNAVAILABLE:"TARGET_UNAVAILABLE",ACTOR_UNAVAILABLE:"ACTOR_UNAVAILABLE",CAPABILITY_UNAVAILABLE:"CAPABILITY_UNAVAILABLE",OUT_OF_RANGE:"OUT_OF_RANGE",INVENTORY_FULL:"INVENTORY_FULL",INCOMPATIBLE_CARGO:"INCOMPATIBLE_CARGO",PRECONDITION:"PRECONDITION",UNVALIDATED:"UNVALIDATED"});
 function actionFailureClass(actionType,message,extra={}){
   if(extra.failureClass)return extra.failureClass;
   const text=String(message||"").toLowerCase();
   if(/resource (depleted|unknown)|resource is no longer observable|target resource (is )?no longer observable|target resource type changed|patient (unavailable|no longer visible)/.test(text))return ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE;
+  if(/capability unavailable|lacks .*capability|requires .*capability/.test(text))return ACTION_FAILURE_CLASS.CAPABILITY_UNAVAILABLE;
   if(/outside .*range|out of range|outside interaction|outside construction|not inside camp|camp (outside|not observable)|patient outside/.test(text))return ACTION_FAILURE_CLASS.OUT_OF_RANGE;
   if(/inventory full|already full/.test(text))return ACTION_FAILURE_CLASS.INVENTORY_FULL;
   if(/another resource|incompatible cargo|inventory contains/.test(text))return ACTION_FAILURE_CLASS.INCOMPATIBLE_CARGO;
