@@ -44,3 +44,5 @@ jobs:
         run: node tests/p20-individual-camera-acceptance.mjs
       - name: Run P5.1 team protocol acceptance
         run: node tests/p5-team-protocol-acceptance.mjs
+      - name: Run P5.2 cooperative slice acceptance
+        run: node tests/p5-2-cooperative-slice-acceptance.mjs
