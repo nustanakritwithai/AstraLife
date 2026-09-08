@@ -105,7 +105,7 @@ class MemorySystem{
     if(outcome.significant)this.remember(agent,outcome.message,outcome.ok?"success":"failure");
     if(!outcome.ok){
       agent.mind.failedActions++;agent.mind.replanAtTick=this.tickOf(agent);
-      if(outcome.actionType===ACTION.GATHER && outcome.resourceId && outcome.invalidateFact){
+      if(outcome.actionType===ACTION.GATHER && outcome.resourceId && outcome.invalidateFact && outcome.failureClass===ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE){
         agent.mind.facts.delete(`resource:${outcome.resourceId}`);
         agent.mind.target=null;
         this.remember(agent,`invalidated stale resource belief #${outcome.resourceId}: ${outcome.message}`,"learning");
