@@ -42,3 +42,5 @@ jobs:
         run: node tests/p18-two-second-tick-animation-acceptance.mjs
       - name: Run P20 individual camera acceptance
         run: node tests/p20-individual-camera-acceptance.mjs
+      - name: Run P5.1 team protocol acceptance
+        run: node tests/p5-team-protocol-acceptance.mjs
