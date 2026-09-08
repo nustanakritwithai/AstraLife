@@ -70,6 +70,7 @@ try {
       carryType: 'food'
     }));
     runtime.memory.learn(A, rangeFailure);
+    const rangeBeliefPresent = A.mind.facts.has(resourceKey);
 
     // A genuinely unavailable target may invalidate the target belief.
     runtime.memory.setFact(A, resourceKey, {
@@ -137,7 +138,7 @@ try {
       capabilityBuildIsNotActorUnavailable: buildCapabilityFailure.failureClass === ACTION_FAILURE_CLASS.CAPABILITY_UNAVAILABLE,
       capabilityHealIsNotGenericPrecondition: healCapabilityFailure.failureClass === ACTION_FAILURE_CLASS.CAPABILITY_UNAVAILABLE,
       deadActorIsActorUnavailable: deadActorFailure.failureClass === ACTION_FAILURE_CLASS.ACTOR_UNAVAILABLE,
-      outOfRangeDoesNotEraseTargetBelief: rangeFailure.failureClass === ACTION_FAILURE_CLASS.OUT_OF_RANGE && A.mind.facts.has(resourceKey),
+      outOfRangeDoesNotEraseTargetBelief: rangeFailure.failureClass === ACTION_FAILURE_CLASS.OUT_OF_RANGE && rangeBeliefPresent,
       targetUnavailableErasesTargetBelief: targetFailure.failureClass === ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE && !A.mind.facts.has(resourceKey),
       planStoresFailureClass: checked.ok && plan.lastFailureClass === ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE && step.lastFailureClass === ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE && invalidation?.failureClass === ACTION_FAILURE_CLASS.TARGET_UNAVAILABLE
     };
