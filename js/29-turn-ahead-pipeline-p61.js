@@ -7,7 +7,7 @@
   let lastExecutedCount = 0;
   let lastThinkingCount = 0;
 
-  function currentObservation(agent){
+  function captureObservation(agent,{ingest=false,trace=false}={}){
     const observation = runtime.observer.capture(runtime.state, agent);
     const contract = runtime.observationContract.validate(observation);
     agent.runtime.lastObservationContract = contract;
@@ -16,8 +16,8 @@
       runtime.memory.trace(agent, "OBS", `CONTRACT FAIL · ${contract.errors.join(" | ")}`);
       return {ok:false, observation, errors:contract.errors};
     }
-    runtime.memory.ingest(agent, observation, runtime.state);
-    runtime.memory.trace(agent, "OBS", `${observation.protocol} · resources=${observation.visibleResources.length}, peers=${observation.nearbyAgents.length}, messages=${observation.messages.length}`);
+    if(ingest)runtime.memory.ingest(agent, observation, runtime.state);
+    if(trace)runtime.memory.trace(agent, "OBS", `${observation.protocol} · resources=${observation.visibleResources.length}, peers=${observation.nearbyAgents.length}, messages=${observation.messages.length}`);
     return {ok:true, observation, errors:[]};
   }
 
@@ -43,7 +43,10 @@
     let executed = 0;
     for(const {agent, ready} of executionPackets){
       if(!agent.alive)continue;
-      const captured = currentObservation(agent);
+      // Pre-execution observation is validation-only. It is deliberately not
+      // ingested into memory; the authoritative memory observation happens
+      // after RESOLVE/LEARN, immediately before thinking for the next turn.
+      const captured = captureObservation(agent,{ingest:false,trace:false});
       if(!captured.ok){
         runtime.queue.enqueue(state.tick, agent.id, ACTION.WAIT, {}, `invalid execution observation: ${captured.errors[0]}`, {provider:"runtime",validated:true});
         continue;
@@ -78,7 +81,7 @@
 
     for(const {agent, failure} of failedPackets){
       if(!agent.alive)continue;
-      const captured = currentObservation(agent);
+      const captured = captureObservation(agent,{ingest:false,trace:false});
       if(!captured.ok)continue;
       const context = {agent,observation:captured.observation,summary,planner:runtime.planner};
       const task = {
@@ -104,7 +107,7 @@
 
     for(const agent of state.agents){
       if(!agent.alive)continue;
-      const captured = currentObservation(agent);
+      const captured = captureObservation(agent,{ingest:true,trace:true});
       if(!captured.ok)continue;
 
       // One logical decision at a time per Agent. A slow provider is allowed to
