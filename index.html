@@ -78,17 +78,17 @@
 
   <div class="card">
     <div class="runtime-head">
-      <b>Deterministic Tick Pipeline</b>
+      <b>Turn-Ahead Pipeline · 8s / tick</b>
       <span id="runtimeMeta">seed · phase</span>
     </div>
     <div class="pipeline">
       <div class="stage" data-stage="ENVIRONMENT">1 ENV</div>
-      <div class="stage" data-stage="OBSERVE">2 OBSERVE</div>
-      <div class="stage" data-stage="REQUEST">3 REQUEST</div>
-      <div class="stage" data-stage="PROVIDER">4 PROVIDER</div>
-      <div class="stage" data-stage="VALIDATE">5 VALIDATE</div>
-      <div class="stage" data-stage="RESOLVE">6 RESOLVE</div>
-      <div class="stage" data-stage="LEARN">7 LEARN</div>
+      <div class="stage" data-stage="VALIDATE">2 EXEC PREV</div>
+      <div class="stage" data-stage="RESOLVE">3 RESOLVE</div>
+      <div class="stage" data-stage="LEARN">4 LEARN</div>
+      <div class="stage" data-stage="OBSERVE">5 OBSERVE</div>
+      <div class="stage" data-stage="REQUEST">6 PLAN NEXT</div>
+      <div class="stage" data-stage="PROVIDER">7 THINK</div>
       <div class="stage" data-stage="COMMIT">8 COMMIT</div>
     </div>
   </div>
@@ -157,7 +157,7 @@
   </div>
 </div>
 
-<div id="tip">V0.5.1: Provider proposes → Validator accepts/rejects → Resolver mutates WorldState · each Astra keeps an independent persistent identity/session.</div>
+<div id="tip">P6.1: 1 tick = 8s · turn N executes the previous plan while thinking one turn ahead.</div>
 </main>
 </div>
 
@@ -193,5 +193,7 @@
 <script src="js/26-executable-plans-p4-2.js"></script>
 <script src="js/27-provider-bridge-p6.js"></script>
 <script src="js/28-typhoon-byok-p6.js"></script>
+<script src="js/29-turn-ahead-pipeline-p61.js"></script>
+<script src="js/30-eight-second-pacing-animation.js"></script>
 </body>
 </html>
