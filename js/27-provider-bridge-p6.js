@@ -9,7 +9,8 @@
     maxEstimatedTokensPerMinute: 45000,
     maxInputTokensPerCall: 12000,
     maxRetries: 1,
-    retryDelayCapMs: 1500
+    retryDelayCapMs: 1500,
+    completedRequestHistory: 256
   });
 
   const runtimeRef = () => runtime;
@@ -25,10 +26,13 @@
       this.inFlight = 0;
       this.calls = [];
       this.tokenReservations = [];
+      this.activeRequestIds = new Set();
+      this.completedRequestIds = [];
       this.stats = {
         calls: 0, successes: 0, rejectedEnvelopes: 0, timeouts: 0,
         rateLimited: 0, retries: 0, budgetRejected: 0, providerErrors: 0,
-        estimatedInputTokens: 0, actualTokens: 0, lastModel: null, lastError: null
+        duplicateRejected: 0, estimatedInputTokens: 0, actualTokens: 0,
+        lastModel: null, lastError: null
       };
     }
 
@@ -133,13 +137,25 @@
       }
     }
 
+    markCompleted(requestId) {
+      this.completedRequestIds.push(String(requestId));
+      if (this.completedRequestIds.length > LIMITS.completedRequestHistory) this.completedRequestIds.shift();
+    }
+
     async decide(request) {
       const endpoint = String(this.endpointGetter() || "").trim();
       if (!endpoint) throw new Error("P6 Typhoon endpoint is empty");
+      const requestId = String(request?.requestId || "");
+      if (!requestId) throw new Error("P6 requestId missing");
+      if (this.activeRequestIds.has(requestId) || this.completedRequestIds.includes(requestId)) {
+        this.stats.duplicateRejected++;
+        throw new Error(`P6 duplicate request rejected: ${requestId}`);
+      }
       const estimatedTokens = estimateTokens(request);
       this.reserve(estimatedTokens);
       const identity = this.identityFor(request);
       const payload = { protocol: "astralife.provider-request.p6", identity, request };
+      this.activeRequestIds.add(requestId);
       this.inFlight++;
       this.stats.calls++;
       let lastError = null;
@@ -177,6 +193,7 @@
                 usage: envelope.usage || null
               }
             };
+            this.markCompleted(requestId);
             this.stats.successes++;
             this.stats.actualTokens += Number(envelope?.usage?.total_tokens || 0);
             this.stats.lastModel = envelope.providerModel || null;
@@ -198,6 +215,7 @@
         this.stats.lastError = String(error?.message || error);
         throw error;
       } finally {
+        this.activeRequestIds.delete(requestId);
         this.inFlight = Math.max(0, this.inFlight - 1);
       }
     }
@@ -210,6 +228,8 @@
         endpoint: String(this.endpointGetter() || "").trim(),
         limits: { ...LIMITS },
         inFlight: this.inFlight,
+        activeRequestIds: [...this.activeRequestIds],
+        completedRequestIds: this.completedRequestIds.slice(-16),
         callsLastMinute: this.calls.length,
         estimatedTokensLastMinute: this.tokenReservations.reduce((sum, row) => sum + row.tokens, 0),
         stats: { ...this.stats }
@@ -243,6 +263,7 @@
     disable: () => { runtime.setProviderMode(PROVIDER_MODE.LOCAL); return runtime.decisionRouter.mode; },
     status: () => provider.snapshot(),
     identityFor: request => ({ ...provider.identityFor(request) }),
+    decideForTest: request => provider.decide(request),
     validateEnvelopeForTest: (envelope, expected, currentEpoch = runtime.decisionRouter.epoch) => {
       try { provider.validateEnvelope(envelope, expected, currentEpoch); return { ok: true, errors: [] }; }
       catch (error) { return { ok: false, errors: String(error.message || error).split(" | ") }; }
