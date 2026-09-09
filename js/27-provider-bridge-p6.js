@@ -20,7 +20,7 @@
     const n = Math.floor(Number(value));
     return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
   };
-  const p6Provider = hint => hint === "remote" || hint === "typhoon";
+  const p6Provider = hint => hint === "typhoon";
   const identityKey = identity => identity ? `${identity.simulationId}|${identity.runEpoch}|${identity.sessionId}|${identity.requestId}` : "";
   const observationIdFor = request => `obs:${request.simulation.id}:${request.simulation.tick}:${request.agent.id}`;
 
