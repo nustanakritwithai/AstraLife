@@ -33,7 +33,7 @@ const ACTION = Object.freeze({
   REST:"REST", BUILD:"BUILD", HEAL:"HEAL", SHARE:"SHARE", WAIT:"WAIT"
 });
 const PRIORITY = Object.freeze({CONSUME:100,HEAL:90,DEPOSIT:80,GATHER:70,BUILD:60,SHARE:55,MOVE:40,REST:30,WAIT:0});
-const ROLE_COLORS = Object.freeze({generalist:"#77f2ad",scout:"#7fdcff",gatherer:"#a9f58c",builder:"#ffd36a",healer:"#ff9cae",carrier:"#c6a4ff",coordinator:"#ffb36b"});
+const ROLE_COLORS = Object.freeze({scout:"#7fdcff",gatherer:"#a9f58c",builder:"#ffd36a",healer:"#ff9cae",carrier:"#c6a4ff"});
 const RESOURCE_COLORS = Object.freeze({water:"#4ba5ef",berry:"#dc70f2",tree:"#3f8b54",herb:"#9cf39f"});
 const PROTOCOL = Object.freeze({
   observation:"astra-colony.observation.v1",
