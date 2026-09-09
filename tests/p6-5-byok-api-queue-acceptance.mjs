@@ -56,32 +56,32 @@ try{
       const obs=runtime.observer.capture(runtime.state,agent);
       return runtime.requestFactory.build(runtime.state,agent,obs,'typhoon-byok');
     };
+    const forceContext=agent=>({agent,forceRealReasoning:true});
 
+    // P6.5 is a lower-level provider/history test. It intentionally bypasses
+    // P6.7 production admission while still exercising the real 3-worker queue.
     const firstRequests=agents.map(makeRequest);
-    const promises=firstRequests.map((req,i)=>provider.decide(req,{agent:agents[i]}));
+    const promises=firstRequests.map((req,i)=>provider.decide(req,forceContext(agents[i])));
     await new Promise(r=>setTimeout(r,8));
     const queuedEarly=window.AstraLifeTyphoonQueue.status();
     const firstResponses=await Promise.all(promises);
 
-    // Explicit replan triggers force real Typhoon turns so this legacy P6.5 test
-    // still verifies independent multi-round provider histories under P6.6 gating.
     runtime.state.tick++;
     agents[0].mind.replanAtTick=runtime.state.tick;
-    await provider.decide(makeRequest(agents[0]),{agent:agents[0]});
+    await provider.decide(makeRequest(agents[0]),forceContext(agents[0]));
     runtime.state.tick++;
     agents[1].mind.replanAtTick=runtime.state.tick;
-    await provider.decide(makeRequest(agents[1]),{agent:agents[1]});
+    await provider.decide(makeRequest(agents[1]),forceContext(agents[1]));
     const a0=agents[0].id,a1=agents[1].id;
     const a0Second=outboundByAgent.get(a0)?.[1]||[];
     const a1Second=outboundByAgent.get(a1)?.[1]||[];
     const a0Text=a0Second.map(m=>m.content).join('\n');
     const a1Text=a1Second.map(m=>m.content).join('\n');
 
-    // Drive one Agent through enough explicit replans to force a safe rollover.
     for(let i=0;i<20;i++){
       runtime.state.tick++;
       agents[0].mind.replanAtTick=runtime.state.tick;
-      await provider.decide(makeRequest(agents[0]),{agent:agents[0]});
+      await provider.decide(makeRequest(agents[0]),forceContext(agents[0]));
     }
 
     const final=window.AstraLifeTyphoonQueue.status();
