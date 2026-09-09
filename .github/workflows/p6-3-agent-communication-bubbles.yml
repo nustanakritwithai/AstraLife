@@ -1,0 +1,42 @@
+name: P6.3 Agent Communication Bubbles
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'index.html'
+      - 'js/31-llm-thought-bubbles-p62.js'
+      - 'js/32-agent-communication-bubbles-p63.js'
+      - 'tests/p6-3-agent-communication-bubbles-acceptance.mjs'
+      - 'tests/p6-2-llm-thought-bubbles-acceptance.mjs'
+      - 'tests/p6-1-turn-ahead-acceptance.mjs'
+      - 'tests/p6-1-eight-second-pacing-acceptance.mjs'
+      - '.github/workflows/p6-3-agent-communication-bubbles.yml'
+  workflow_dispatch:
+
+jobs:
+  communication-bubbles-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Syntax check P6.3 module
+        run: node --check js/32-agent-communication-bubbles-p63.js
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run P6.3 communication bubble acceptance
+        run: node tests/p6-3-agent-communication-bubbles-acceptance.mjs
+      - name: Re-run P6.2 LLM thought bubble acceptance
+        run: node tests/p6-2-llm-thought-bubbles-acceptance.mjs
+      - name: Re-run P6.1 turn-ahead acceptance
+        run: node tests/p6-1-turn-ahead-acceptance.mjs
+      - name: Re-run P6.1 8-second pacing acceptance
+        run: node tests/p6-1-eight-second-pacing-acceptance.mjs
+      - name: Re-run P5.2 cooperative slice acceptance
+        run: node tests/p5-2-cooperative-slice-acceptance.mjs
