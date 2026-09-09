@@ -3,7 +3,7 @@
 
   const VERSION="p6.10-world-snapshot-http-byok";
   const PROVIDER_ID="world-snapshot-http";
-  const DEFAULT_ENDPOINT="https://dufgcgjhcgiefpdjxewp.supabase.co/functions/v1/astralife-typhoon";
+  const DEFAULT_ENDPOINT="https://dufgcgjhcgiefpdjxewp.supabase.co/functions/v1/astralife-world-snapshot";
   const MAX_RESPONSE_BYTES=900000;
   const MAX_BATCH_AGENTS=160;
   const FLUSH_DELAY_MS=0;
@@ -135,7 +135,7 @@
       try{
         response=await fetch(endpoint(),{
           method:"POST",
-          headers:{"content-type":"application/json","accept":"application/json","authorization":`Bearer ${sessionKey}`},
+          headers:{"content-type":"application/json","accept":"application/json","x-typhoon-key":sessionKey},
           body:JSON.stringify(payload),signal:controller.signal,credentials:"omit",cache:"no-store",referrerPolicy:"no-referrer"
         });
       }finally{clearTimeout(timer)}
@@ -207,6 +207,7 @@
     const key=String(keyInput.value||"").trim();
     if(key.length<12){keyInput.setCustomValidity("ใส่ API key ก่อน");keyInput.reportValidity();return;}
     keyInput.setCustomValidity("");sessionKey=key;keyInput.value="";
+    runtime.setProviderEndpoint(DEFAULT_ENDPOINT);
     runtime.setProviderMode(`provider:${PROVIDER_ID}`);if(select)select.value=`provider:${PROVIDER_ID}`;updateHud();
   };
   clearBtn.onclick=()=>{sessionKey="";keyInput.value="";if(runtime.decisionRouter.mode===`provider:${PROVIDER_ID}`)runtime.setProviderMode(PROVIDER_MODE.LOCAL);if(select)select.value=PROVIDER_MODE.LOCAL;updateHud();};
