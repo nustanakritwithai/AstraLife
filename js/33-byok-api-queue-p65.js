@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "p6.5-byok-api-queue";
+  const VERSION = "p6.5-byok-api-queue-independent-sessions";
   const PROVIDER_ID = "typhoon-byok";
   const MAX_ACTIVE = 3;
   const SAFE_CALLS_PER_MINUTE = 165;
@@ -129,9 +129,9 @@
 
   const queuedProvider = new QueuedByokProvider();
   window.AstraColony.registerProvider(PROVIDER_ID,queuedProvider,{
-    label:"Typhoon 2.5 · BYOK queued",
+    label:"Typhoon 2.5 · BYOK · independent Agents",
     async:true,
-    description:"Queued browser provider: all Agents wait for real Typhoon capacity instead of falling back because concurrency is full"
+    description:"One API key, isolated per-Agent LLM sessions, queued fairly so excess Agents wait for real Typhoon capacity"
   });
 
   if(baseApi){
@@ -157,6 +157,7 @@
     const upstreamStats=s.upstream?.stats||{};
     const successes=Number(upstreamStats.successes||0);
     const errors=Number(upstreamStats.errors||0)+Number(stats.failed||0);
+    const sessionCount=Number(s.upstream?.sessions?.count||0);
     if(!s.configured){
       statusEl.textContent="Typhoon API · ยังไม่เปิด";
       statusEl.classList.remove("pending","error");
@@ -168,7 +169,7 @@
       statusEl.classList.add("error");statusEl.classList.remove("pending");
       return;
     }
-    statusEl.textContent=`Typhoon API ✓${successes} · Run ${s.active} · Q ${s.queueDepth}`;
+    statusEl.textContent=`Typhoon API ✓${successes} · Run ${s.active} · Q ${s.queueDepth} · S ${sessionCount}`;
     statusEl.classList.toggle("pending",s.active>0||s.queueDepth>0);
     statusEl.classList.remove("error");
   }
