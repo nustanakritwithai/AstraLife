@@ -112,22 +112,62 @@ function drawMessageEffects(state){
   }
 }
 const AGENT_SPRITE_ROLES=["generalist","scout","gatherer","builder","healer","carrier","coordinator"];
+const AGENT_WALK_FRAMES=4;
 const agentSprites=Object.create(null);
+const agentWalkSprites=Object.create(null);
+const agentFacing=new Map();
 (function loadAgentSprites(){
   for(const role of AGENT_SPRITE_ROLES){
-    const img=new Image();
-    img.decoding="async";
-    img.src=`assets/sprites/chibi/${role}.png`;
-    agentSprites[role]=img;
+    const idle=new Image();
+    idle.decoding="async";
+    idle.src=`assets/sprites/chibi/${role}.png`;
+    agentSprites[role]=idle;
+    const walks=[];
+    for(let i=0;i<AGENT_WALK_FRAMES;i++){
+      const img=new Image();
+      img.decoding="async";
+      img.src=`assets/sprites/chibi/walk/${role}/f${i}.png`;
+      walks.push(img);
+    }
+    agentWalkSprites[role]=walks;
   }
 })();
+function agentMotion(a){
+  const current={x:a.body.x,y:a.body.y};
+  const from=(typeof visualPrevious!=="undefined"&&visualPrevious&&visualPrevious.agents.get(a.id))||current;
+  const to=(typeof visualNext!=="undefined"&&visualNext&&visualNext.agents.get(a.id))||current;
+  const dx=to.x-from.x,dy=to.y-from.y;
+  const dist=Math.hypot(dx,dy);
+  const moving=dist>0.35||a.runtime?.lastActionType===ACTION.MOVE;
+  if(Math.abs(dx)>0.08)agentFacing.set(a.id,dx>=0?1:-1);
+  else if(a.mind?.target){
+    const tdx=a.mind.target.x-a.body.x;
+    if(Math.abs(tdx)>0.5)agentFacing.set(a.id,tdx>=0?1:-1);
+  }
+  return {moving,dx,dy,dist};
+}
 function drawAgent(a,selected){
   const p=visualAgentPosition(a),x=p.x,y=p.y;
   if(!a.alive){ctx.fillStyle="#3c4741";ctx.fillRect(x-2,y-2,4,4);return}
-  const sprite=agentSprites[a.role];
+  const motion=agentMotion(a);
+  const facing=agentFacing.get(a.id)||1;
   const size=selected?18:14;
+  let sprite=agentSprites[a.role];
+  if(motion.moving){
+    const frames=agentWalkSprites[a.role]||[];
+    const speed=Math.max(1,Number(runtime.state?.speed)||1);
+    const interval=(typeof FRAME_PACING!=="undefined"&&FRAME_PACING.intervalMs)||2000;
+    const phase=(typeof visualElapsedMs==="number"?visualElapsedMs:0)+((runtime.state?.tick||0)*interval);
+    const idx=Math.floor((phase*speed)/140)%AGENT_WALK_FRAMES;
+    const walk=frames[idx];
+    if(walk&&walk.complete&&walk.naturalWidth>0)sprite=walk;
+  }
   if(sprite&&sprite.complete&&sprite.naturalWidth>0){
-    ctx.drawImage(sprite,x-size/2,y-size/2-1,size,size);
+    ctx.save();
+    ctx.translate(x,y-1);
+    ctx.scale(facing,1);
+    ctx.drawImage(sprite,-size/2,-size/2,size,size);
+    ctx.restore();
   }else{
     ctx.fillStyle=ROLE_COLORS[a.role]||"#77f2ad";ctx.beginPath();ctx.arc(x,y,selected?5.5:3.5,0,Math.PI*2);ctx.fill();
   }
