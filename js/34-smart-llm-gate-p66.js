@@ -37,7 +37,8 @@
   const storm=request=>!!request?.observation?.environment?.stormActive;
   const selected=request=>Number(runtime.selectedAgentId)===Number(request?.agent?.id);
   const staleThresholdFor=request=>BASE_MAX_STALE_TICKS+((Math.max(1,Number(request?.agent?.id)||1)-1)%STALE_JITTER_TICKS);
-  const bootstrapSlotFor=request=>(Math.max(1,Number(request?.agent?.id)||1)-1)%BOOTSTRAP_SPREAD_TICKS;
+  // Group Agents in triples so every bootstrap slot admits A/B/C together.
+  const bootstrapSlotFor=request=>Math.floor((Math.max(1,Number(request?.agent?.id)||1)-1)/3)%BOOTSTRAP_SPREAD_TICKS;
 
   function clone(value){return JSON.parse(JSON.stringify(value))}
 
@@ -241,12 +242,12 @@
     status:()=>gated.status(),
     clear:()=>{cache.clear();return true},
     staleTicksForAgent:agentId=>BASE_MAX_STALE_TICKS+((Math.max(1,Number(agentId)||1)-1)%STALE_JITTER_TICKS),
-    bootstrapSlotForAgent:agentId=>(Math.max(1,Number(agentId)||1)-1)%BOOTSTRAP_SPREAD_TICKS,
+    bootstrapSlotForAgent:agentId=>Math.floor((Math.max(1,Number(agentId)||1)-1)/3)%BOOTSTRAP_SPREAD_TICKS,
     policy:Object.freeze({
       realTriggers:["bootstrap","action-failed","significant-outcome","new-message","new-fact","environment-change","entered-critical","critical-refresh","scheduled-replan","selected-refresh","max-stale-refresh","one-shot-action","one-shot-outcome"],
       urgentTriggers:[...URGENT_REASONS],
       reusableActions:[...REUSABLE_ACTIONS],
-      admission:"bootstrap stagger + queue-pressure backoff; no local fallback for ordinary deferral"
+      admission:"balanced A/B/C bootstrap stagger + queue-pressure backoff; no local fallback for ordinary deferral"
     })
   });
 })();
