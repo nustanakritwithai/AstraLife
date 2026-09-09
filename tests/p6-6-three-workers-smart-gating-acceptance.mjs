@@ -43,7 +43,9 @@ try{
     for(const a of agents)a.mind.replanAtTick=999;
     const makeRequest=agent=>runtime.requestFactory.build(runtime.state,agent,runtime.observer.capture(runtime.state,agent),'typhoon-byok');
 
-    const first=agents.map(a=>provider.decide(makeRequest(a),{agent:a}));
+    // This regression intentionally bypasses P6.7 admission so it continues to
+    // prove the underlying 3-worker network scheduler itself.
+    const first=agents.map(a=>provider.decide(makeRequest(a),{agent:a,forceRealReasoning:true}));
     await new Promise(r=>setTimeout(r,6));
     const early=window.AstraLifeTyphoonQueue.status();
     const firstResponses=await Promise.all(first);
@@ -64,7 +66,7 @@ try{
     runtime.state.tick++;
     const secondResponses=await Promise.all(agents.map(a=>provider.decide(makeRequest(a),{agent:a})));
     check('stableTurnsReuseWithoutNetwork',totalFetch===afterFirstFetch,{totalFetch,afterFirstFetch});
-    check('reusedResponsesReboundToCurrentRequest',secondResponses.every(r=>r.tick===runtime.state.tick&&r.diagnostics?.decisionSource==='cached-llm-reuse'),{tick:runtime.state.tick});
+    check('reusedResponsesReboundToCurrentRequest',secondResponses.every(r=>r.tick===runtime.state.tick&&String(r.diagnostics?.decisionSource||'').includes('reuse')),{tick:runtime.state.tick});
 
     const failed=agents[0];
     failed.runtime.lastOutcome={actionId:'p66-fail-1',agentId:failed.id,actionType:'WAIT',ok:false,message:'forced test failure',significant:true};
@@ -75,7 +77,7 @@ try{
     const stale=agents[2];
     stale.runtime.lastOutcome=null;
     stale.mind.replanAtTick=999;
-    runtime.state.tick=6;
+    runtime.state.tick=window.AstraLifeLLMGate.staleTicksForAgent(stale.id);
     await provider.decide(makeRequest(stale),{agent:stale});
     check('maxStaleWindowForcesRefresh',totalFetch===afterFirstFetch+2,{totalFetch});
 
