@@ -1,0 +1,61 @@
+name: P6 Provider Bridge
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'index.html'
+      - 'js/**'
+      - 'server/**'
+      - 'tests/**'
+      - '.github/workflows/p6-provider-bridge.yml'
+  workflow_dispatch:
+
+jobs:
+  provider-bridge-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Syntax check P6 bridge
+        run: |
+          node --check js/27-provider-bridge-p6.js
+          node --check server/typhoon-bridge.mjs
+          node --check tests/p6-provider-bridge-acceptance.mjs
+          node --check tests/p6-typhoon-real-smoke.mjs
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Re-run P0 core regression
+        run: node tests/p0-browser-acceptance.mjs
+      - name: Re-run P0.1 knowledge-boundary regression
+        run: node tests/p01-browser-acceptance.mjs
+      - name: Re-run P1 structured-belief regression
+        run: node tests/p1-belief-acceptance.mjs
+      - name: Re-run P2 memory regression
+        run: node tests/p2-memory-acceptance.mjs
+      - name: Re-run P3 predictive world-model acceptance
+        run: node tests/p3-world-model-acceptance.mjs
+      - name: Re-run P4 executable-plan acceptance
+        run: node tests/p4-executable-plans-acceptance.mjs
+      - name: Re-run P4.1 human-capability acceptance
+        run: node tests/p4-1-human-capabilities-acceptance.mjs
+      - name: Re-run P4.1 failure-semantics acceptance
+        run: node tests/p4-1-human-capabilities-failure-semantics-acceptance.mjs
+      - name: Re-run P4.2 hardening acceptance
+        run: node tests/p4-2-executable-plans-hardening-acceptance.mjs
+      - name: Re-run P18 two-second tick animation acceptance
+        run: node tests/p18-two-second-tick-animation-acceptance.mjs
+      - name: Re-run P20 individual camera acceptance
+        run: node tests/p20-individual-camera-acceptance.mjs
+      - name: Re-run P5.1 team protocol acceptance
+        run: node tests/p5-team-protocol-acceptance.mjs
+      - name: Re-run P5.2 cooperative slice acceptance
+        run: node tests/p5-2-cooperative-slice-acceptance.mjs
+      - name: Run P6 provider bridge acceptance
+        run: node tests/p6-provider-bridge-acceptance.mjs
