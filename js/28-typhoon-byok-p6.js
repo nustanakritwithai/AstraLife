@@ -4,8 +4,8 @@
   const PROVIDER_ID = "typhoon-byok";
   const MODEL = "typhoon-v2.5-30b-a3b-instruct";
   const ENDPOINT = "https://api.opentyphoon.ai/v1/chat/completions";
-  const MAX_CONCURRENT = 3;
-  const MAX_CALLS_PER_MINUTE = 180;
+  const MAX_CONCURRENT = 48;
+  const MAX_CALLS_PER_MINUTE = 195;
   const MAX_RETRIES = 1;
   const MAX_API_MESSAGES = 44;
   const COMPACT_AT_HISTORY_MESSAGES = 36;
@@ -275,7 +275,7 @@
   }
 
   window.AstraLifeTyphoonBYOK = Object.freeze({
-    version:"p6.5-independent-agent-sessions",
+    version:"p6.8-full-throughput-independent-agent-sessions",
     providerId:PROVIDER_ID,
     model:MODEL,
     endpoint:ENDPOINT,
