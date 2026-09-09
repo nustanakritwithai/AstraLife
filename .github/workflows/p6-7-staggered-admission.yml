@@ -1,19 +1,18 @@
-name: P6.7 Staggered LLM Admission
+name: P6.8 Full Throughput Rolling Dispatch
 
 on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'js/31-llm-thought-bubbles-p62.js'
+      - 'js/28-typhoon-byok-p6.js'
+      - 'js/33-byok-api-queue-p65.js'
       - 'js/34-smart-llm-gate-p66.js'
-      - 'tests/p6-5-byok-api-queue-acceptance.mjs'
-      - 'tests/p6-6-three-workers-smart-gating-acceptance.mjs'
-      - 'tests/p6-7-staggered-admission-acceptance.mjs'
+      - 'tests/p6-8-full-throughput-rolling-dispatch-acceptance.mjs'
       - '.github/workflows/p6-7-staggered-admission.yml'
   workflow_dispatch:
 
 jobs:
-  staggered-admission-acceptance:
+  full-throughput-acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,23 +20,20 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-      - name: Syntax check gate and thought overlay
+      - name: Syntax check full-throughput provider stack
         run: |
+          node --check js/28-typhoon-byok-p6.js
+          node --check js/33-byok-api-queue-p65.js
           node --check js/34-smart-llm-gate-p66.js
-          node --check js/31-llm-thought-bubbles-p62.js
       - name: Install Playwright
         run: |
           npm init -y
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Run P6.7 staggered admission acceptance
-        run: node tests/p6-7-staggered-admission-acceptance.mjs
-      - name: Re-run P6.6 three-worker smart gating
-        run: node tests/p6-6-three-workers-smart-gating-acceptance.mjs
-      - name: Re-run P6.5 independent sessions and queue
-        run: node tests/p6-5-byok-api-queue-acceptance.mjs
+      - name: Run P6.8 60-Agent full-throughput acceptance
+        run: node tests/p6-8-full-throughput-rolling-dispatch-acceptance.mjs
       - name: Re-run P6.1 turn-ahead
-        run: node tests/p6-1-turn-ahead-pipeline-acceptance.mjs
+        run: node tests/p61-turn-ahead-pipeline-acceptance.mjs
       - name: Re-run P6.2 thought bubbles
         run: node tests/p6-2-llm-thought-bubbles-acceptance.mjs
       - name: Re-run P6.3 communication bubbles

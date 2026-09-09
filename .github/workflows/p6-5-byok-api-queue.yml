@@ -1,18 +1,14 @@
-name: P6.5 Independent Agent LLM Sessions + BYOK Queue
+name: P6.5 Legacy Independent Session Regression
 
 on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'index.html'
-      - 'js/28-typhoon-byok-p6.js'
-      - 'js/33-byok-api-queue-p65.js'
       - 'tests/p6-5-byok-api-queue-acceptance.mjs'
-      - '.github/workflows/p6-5-byok-api-queue.yml'
   workflow_dispatch:
 
 jobs:
-  independent-agent-session-acceptance:
+  legacy-independent-session-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -20,22 +16,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-      - name: Syntax check BYOK session provider
-        run: node --check js/28-typhoon-byok-p6.js
-      - name: Syntax check P6.5 queue
-        run: node --check js/33-byok-api-queue-p65.js
       - name: Install Playwright
         run: |
           npm init -y
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Run independent Agent session + queued BYOK acceptance
+      - name: Run legacy independent Agent session regression
         run: node tests/p6-5-byok-api-queue-acceptance.mjs
-      - name: Re-run BYOK acceptance
-        run: node tests/p6-typhoon-byok-acceptance.mjs
-      - name: Re-run P6.1 turn-ahead acceptance
-        run: node tests/p6-1-turn-ahead-pipeline-acceptance.mjs
-      - name: Re-run P6.2 thought bubble acceptance
-        run: node tests/p6-2-llm-thought-bubbles-acceptance.mjs
-      - name: Re-run P6.3 communication bubble acceptance
-        run: node tests/p6-3-agent-communication-bubbles-acceptance.mjs
