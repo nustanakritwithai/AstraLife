@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "p6.4-natural-llm-thought-bubbles";
+  const VERSION = "p6.7-natural-llm-thought-bubbles";
   const ACTIVE_MS = 7600;
   const POST_EXEC_MS = 3000;
   const MAX_VISIBLE = 12;
@@ -18,13 +18,10 @@
 
   function extractThought(response){
     if(!response || !isLlmProvider(response.provider))return null;
+    const source=String(response?.diagnostics?.decisionSource||"");
+    if(source.startsWith("deferred-admission"))return null;
     const d = response.decision || {};
     const c = d.cognition || {};
-
-    // P6.4: the bubble is a natural public thought, not a UI/status composition.
-    // Prefer an explicit public thought if a provider supplies one. Otherwise use
-    // the provider's own natural-language reason/plan. Goal/action are metadata
-    // fallbacks only and are never concatenated into a status-like sentence.
     const explicitThought = clean(c.thought || d.thought || d.publicThought, 140);
     const reason = clean(d.reason || c.reason, 140);
     const plan = clean(c.plan, 140);
@@ -166,9 +163,6 @@
     return rows.length;
   }
 
-  // Disable the old focused-agent summary bubble entirely. P6.4 only shows a
-  // thought when an actual LLM response exists, so the UI cannot fall back to a
-  // goal/action/status string that looks like a synthetic "attitude".
   if(typeof window.drawFocusedThought === "function")window.drawFocusedThought = () => "";
 
   const originalRender = window.render;
@@ -182,7 +176,7 @@
 
   window.AstraLifeLLMThoughtBubbles = Object.freeze({
     version:VERSION,
-    policy:"natural public LLM text only; explicit thought > reason > plan; no hidden chain-of-thought, diagnostics, or legacy status fallback",
+    policy:"natural public LLM text only; deferred admission waits are hidden; no hidden chain-of-thought, diagnostics, or legacy status fallback",
     extractForTest:response=>extractThought(response),
     getThought:agentId=>{
       const agent=runtime.state.agentById.get(Number(agentId));
