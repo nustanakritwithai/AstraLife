@@ -112,10 +112,11 @@ function drawMessageEffects(state){
   }
 }
 const AGENT_SPRITE_ROLES=["generalist","scout","gatherer","builder","healer","carrier","coordinator"];
-const AGENT_WALK_FRAMES=4;
+const AGENT_WALK_FRAMES=2;
 const agentSprites=Object.create(null);
 const agentWalkSprites=Object.create(null);
 const agentFacing=new Map();
+const agentLastPos=new Map();
 (function loadAgentSprites(){
   for(const role of AGENT_SPRITE_ROLES){
     const idle=new Image();
@@ -132,39 +133,53 @@ const agentFacing=new Map();
     agentWalkSprites[role]=walks;
   }
 })();
-function agentMotion(a){
-  const current={x:a.body.x,y:a.body.y};
-  const from=(typeof visualPrevious!=="undefined"&&visualPrevious&&visualPrevious.agents.get(a.id))||current;
-  const to=(typeof visualNext!=="undefined"&&visualNext&&visualNext.agents.get(a.id))||current;
-  const dx=to.x-from.x,dy=to.y-from.y;
-  const dist=Math.hypot(dx,dy);
-  const moving=dist>0.35||a.runtime?.lastActionType===ACTION.MOVE;
-  if(Math.abs(dx)>0.08)agentFacing.set(a.id,dx>=0?1:-1);
+function agentMotion(a,x,y){
+  const prev=agentLastPos.get(a.id);
+  agentLastPos.set(a.id,{x,y,t:performance.now()});
+  let dx=0,dy=0,dist=0;
+  if(prev){
+    dx=x-prev.x; dy=y-prev.y; dist=Math.hypot(dx,dy);
+  }
+  const from=(typeof visualPrevious!=="undefined"&&visualPrevious&&visualPrevious.agents.get(a.id))||null;
+  const to=(typeof visualNext!=="undefined"&&visualNext&&visualNext.agents.get(a.id))||null;
+  let snapDist=0,snapDx=0;
+  if(from&&to){
+    snapDx=to.x-from.x; const snapDy=to.y-from.y; snapDist=Math.hypot(snapDx,snapDy);
+  }
+  const moving=snapDist>0.4||dist>0.08||a.runtime?.lastActionType===ACTION.MOVE;
+  if(Math.abs(snapDx)>0.08)agentFacing.set(a.id,snapDx>=0?1:-1);
+  else if(Math.abs(dx)>0.05)agentFacing.set(a.id,dx>=0?1:-1);
   else if(a.mind?.target){
     const tdx=a.mind.target.x-a.body.x;
     if(Math.abs(tdx)>0.5)agentFacing.set(a.id,tdx>=0?1:-1);
   }
-  return {moving,dx,dy,dist};
+  return {moving,dx,dy,dist,snapDist};
+}
+function pickWalkFrame(role){
+  const frames=agentWalkSprites[role]||[];
+  // hard swap every ~220ms wall-clock so legs visibly alternate
+  const idx=Math.floor(performance.now()/220)%AGENT_WALK_FRAMES;
+  const walk=frames[idx];
+  if(walk&&walk.complete&&walk.naturalWidth>0)return walk;
+  for(const f of frames){if(f&&f.complete&&f.naturalWidth>0)return f}
+  return null;
 }
 function drawAgent(a,selected){
   const p=visualAgentPosition(a),x=p.x,y=p.y;
   if(!a.alive){ctx.fillStyle="#3c4741";ctx.fillRect(x-2,y-2,4,4);return}
-  const motion=agentMotion(a);
+  const motion=agentMotion(a,x,y);
   const facing=agentFacing.get(a.id)||1;
-  const size=selected?18:14;
-  let sprite=agentSprites[a.role];
-  if(motion.moving){
-    const frames=agentWalkSprites[a.role]||[];
-    const speed=Math.max(1,Number(runtime.state?.speed)||1);
-    const interval=(typeof FRAME_PACING!=="undefined"&&FRAME_PACING.intervalMs)||2000;
-    const phase=(typeof visualElapsedMs==="number"?visualElapsedMs:0)+((runtime.state?.tick||0)*interval);
-    const idx=Math.floor((phase*speed)/140)%AGENT_WALK_FRAMES;
-    const walk=frames[idx];
-    if(walk&&walk.complete&&walk.naturalWidth>0)sprite=walk;
+  const size=selected?22:18;
+  let sprite=null;
+  if(motion.moving)sprite=pickWalkFrame(a.role);
+  if(!sprite){
+    const idle=agentSprites[a.role];
+    if(idle&&idle.complete&&idle.naturalWidth>0)sprite=idle;
   }
-  if(sprite&&sprite.complete&&sprite.naturalWidth>0){
+  if(sprite){
+    const bob=motion.moving?Math.sin(performance.now()/110)*0.6:0;
     ctx.save();
-    ctx.translate(x,y-1);
+    ctx.translate(x,y-1+bob);
     ctx.scale(facing,1);
     ctx.drawImage(sprite,-size/2,-size/2,size,size);
     ctx.restore();
@@ -173,12 +188,12 @@ function drawAgent(a,selected){
   }
   if(a.runtime.lastProvider&&a.runtime.lastProvider!=="local"){
     ctx.strokeStyle=PROVIDER_RING[a.runtime.lastProvider]||"#d393ff";ctx.lineWidth=a.runtime.providerStatus==="pending"?1.8:.8;
-    ctx.beginPath();ctx.arc(x,y,a.runtime.providerStatus==="pending"?11:9.5,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.arc(x,y,a.runtime.providerStatus==="pending"?12:10,0,Math.PI*2);ctx.stroke();
   }
-  if(a.body.hp<45){ctx.strokeStyle="#ff7b7b";ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(x,y,10,0,Math.PI*2);ctx.stroke()}
+  if(a.body.hp<45){ctx.strokeStyle="#ff7b7b";ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(x,y,11,0,Math.PI*2);ctx.stroke()}
   if(a.inventory.amount>0){ctx.fillStyle=a.inventory.type==="water"?"#55b5ff":a.inventory.type==="food"?"#df73ff":"#b7804b";ctx.fillRect(x-2.5,y+size/2-1,5,2)}
   if(selected){
-    ctx.strokeStyle="#fff";ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,12,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle="#fff";ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,13,0,Math.PI*2);ctx.stroke();
     ctx.fillStyle="#fff";ctx.font="10px system-ui";ctx.fillText(a.name,x+14,y-8);
     if(a.mind.target){ctx.strokeStyle="#fff6";ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(a.mind.target.x,a.mind.target.y);ctx.stroke();ctx.setLineDash([])}
   }
