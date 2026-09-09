@@ -36,10 +36,12 @@
       "You are the decision engine for one AstraLife agent.",
       "Use ONLY the supplied observation, memory, beliefs and action contract. Never infer hidden world state.",
       "Return one compact JSON object only. Do not reveal chain-of-thought.",
+      "Include thought as ONE short natural first-person public thought that a player can read above the character. It is not chain-of-thought; it is only a brief outward summary such as: 'I should check that water source before moving farther.'",
+      "Do not write UI labels, telemetry, attitude tags, or strings like GOAL · ACTION · REASON inside thought.",
       `Allowed action types: ${(request.actionContract?.allowedTypes || ["WAIT"]).join(", ")}`,
-      'Return shape: {"action":{"type":"WAIT","payload":{}},"goal":"short goal","reason":"short observable reason","plan":"short plan","confidence":0.7,"replanAfterTicks":12}',
+      'Return shape: {"action":{"type":"WAIT","payload":{}},"thought":"one natural public thought","goal":"short goal","reason":"short observable reason","plan":"short plan","confidence":0.7,"replanAfterTicks":12}',
       "Payloads: MOVE{x,y,speed?}; GATHER{resourceId,resourceType,carryType}; CONSUME{resource}; HEAL{targetAgentId}; SHARE{intent,facts,targetAgentId?,replyTo?,urgency?,text?}; DEPOSIT/REST/BUILD/WAIT use {}.",
-      "Keep confidence 0..1 and replanAfterTicks 1..120.",
+      "Keep thought <= 140 chars, confidence 0..1 and replanAfterTicks 1..120.",
       JSON.stringify(compactRequest(request))
     ].join("\n");
   }
@@ -53,6 +55,7 @@
     const goal = safeText(src.goal || request.memory.currentGoal || "orient", 80) || "orient";
     const reason = safeText(src.reason || "Typhoon chose an action from the visible state", 180);
     const plan = safeText(src.plan || type, 220);
+    const thought = safeText(src.thought || src.publicThought || reason || plan || goal, 140);
     const confidence = clamp(Number(src.confidence) || .5, 0, 1);
     const replanAfterTicks = clamp(Math.floor(Number(src.replanAfterTicks) || 18), 1, 120);
     return {
@@ -63,7 +66,8 @@
       provider: PROVIDER_ID,
       decision: {
         action: {protocol:PROTOCOL.action,type,payload:type===ACTION.WAIT?{}:payload},
-        cognition:{goal,reason,plan},
+        cognition:{goal,reason,plan,thought},
+        thought,
         reason,confidence,replanAfterTicks
       },
       diagnostics:{engine:"opentyphoon-direct-byok",model:MODEL,keyPersistence:"memory-only"}
@@ -92,11 +96,11 @@
               body:JSON.stringify({
                 model:MODEL,
                 messages:[
-                  {role:"system",content:"Return only the requested compact JSON decision. Never expose hidden chain-of-thought."},
+                  {role:"system",content:"Return only the requested compact JSON decision. Never expose hidden chain-of-thought. thought is a brief public first-person summary only."},
                   {role:"user",content:promptFor(request)}
                 ],
                 temperature:.2,
-                max_tokens:520,
+                max_tokens:560,
                 stream:false
               }),
               credentials:"omit",cache:"no-store",referrerPolicy:"no-referrer"
@@ -175,13 +179,12 @@
   runtime.snapshot = function(){
     const snap = oldSnapshot();
     snap.provider.byok = provider.status();
-    // Deliberately expose only a boolean. Never export the credential itself.
     snap.provider.byok.configured = provider.isConfigured();
     return snap;
   };
 
   window.AstraLifeTyphoonBYOK = Object.freeze({
-    version:"p6.byok.1",
+    version:"p6.byok.2-natural-thought",
     providerId:PROVIDER_ID,
     model:MODEL,
     endpoint:ENDPOINT,

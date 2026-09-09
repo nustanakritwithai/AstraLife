@@ -1,12 +1,11 @@
 (() => {
   "use strict";
 
-  const VERSION = "p6.2-llm-thought-bubbles";
+  const VERSION = "p6.4-natural-llm-thought-bubbles";
   const ACTIVE_MS = 7600;
   const POST_EXEC_MS = 3000;
   const MAX_VISIBLE = 12;
   const cache = new Map();
-  const seenKeys = new Map();
 
   const isLlmProvider = provider => {
     const p = String(provider || "").toLowerCase();
@@ -21,21 +20,24 @@
     if(!response || !isLlmProvider(response.provider))return null;
     const d = response.decision || {};
     const c = d.cognition || {};
-    const goal = clean(c.goal, 56);
-    const action = clean(d.action?.type, 18);
-    const reason = clean(d.reason || c.reason, 76);
-    const plan = clean(c.plan, 76);
-    const detail = reason || plan;
-    const parts = [];
-    if(goal)parts.push(goal);
-    if(action)parts.push(action);
-    if(detail)parts.push(detail);
-    const text = parts.join(" · ").slice(0,120);
+
+    // P6.4: the bubble is a natural public thought, not a UI/status composition.
+    // Prefer an explicit public thought if a provider supplies one. Otherwise use
+    // the provider's own natural-language reason/plan. Goal/action are metadata
+    // fallbacks only and are never concatenated into a status-like sentence.
+    const explicitThought = clean(c.thought || d.thought || d.publicThought, 140);
+    const reason = clean(d.reason || c.reason, 140);
+    const plan = clean(c.plan, 140);
+    const goal = clean(c.goal, 100);
+    const action = clean(d.action?.type, 24);
+    const text = (explicitThought || reason || plan || goal || action).slice(0,140);
     if(!text)return null;
+
     return {
       provider:String(response.provider),
       requestId:String(response.requestId || ""),
       text,
+      explicitThought,
       goal,
       action,
       reason,
@@ -68,7 +70,6 @@
         executedAt:null
       };
       cache.set(agent.id, entry);
-      seenKeys.set(agent.id, key);
     }else{
       if(source.staged){
         entry.staged = true;
@@ -102,12 +103,12 @@
     const lines=[];let line="";
     for(const word of words){
       const next=line?`${line} ${word}`:word;
-      if(next.length>34 && line){lines.push(line);line=word;if(lines.length===2)break;}
+      if(next.length>38 && line){lines.push(line);line=word;if(lines.length===2)break;}
       else line=next;
     }
     if(lines.length<2 && line)lines.push(line);
     if(lines.length>2)lines.length=2;
-    if(lines.length===2 && lines.join(" ").length<text.length)lines[1]=`${lines[1].slice(0,31)}…`;
+    if(lines.length===2 && lines.join(" ").length<text.length)lines[1]=`${lines[1].slice(0,35)}…`;
     return lines;
   }
 
@@ -123,8 +124,8 @@
     ctx.textAlign="center";ctx.textBaseline="middle";
     let width=0;
     for(const line of lines)width=Math.max(width,ctx.measureText(line).width);
-    width=Math.min(selected?220:190,Math.max(92,width+18));
-    const height=lines.length===1?28:42;
+    width=Math.min(selected?230:200,Math.max(104,width+20));
+    const height=lines.length===1?30:44;
     const yOffset=selected?86:54;
     const x=clamp(pos.x-width/2,6,CSS_W-width-6);
     const y=clamp(pos.y-yOffset,6,CSS_H-height-6);
@@ -138,9 +139,9 @@
     ctx.fillStyle="#f4f1ff";
     if(lines.length===1)ctx.fillText(`💭 ${lines[0]}`,x+width/2,y+height/2,width-12);
     else{
-      ctx.fillText(`💭 ${lines[0]}`,x+width/2,y+13,width-12);
+      ctx.fillText(`💭 ${lines[0]}`,x+width/2,y+14,width-12);
       ctx.fillStyle="#d9d4ec";
-      ctx.fillText(lines[1],x+width/2,y+29,width-12);
+      ctx.fillText(lines[1],x+width/2,y+31,width-12);
     }
     ctx.restore();
     return true;
@@ -165,25 +166,23 @@
     return rows.length;
   }
 
-  const originalFocusedDrawer = typeof window.drawFocusedThought === "function" ? window.drawFocusedThought : null;
-  if(originalFocusedDrawer)window.drawFocusedThought = () => "";
+  // Disable the old focused-agent summary bubble entirely. P6.4 only shows a
+  // thought when an actual LLM response exists, so the UI cannot fall back to a
+  // goal/action/status string that looks like a synthetic "attitude".
+  if(typeof window.drawFocusedThought === "function")window.drawFocusedThought = () => "";
 
   const originalRender = window.render;
   if(typeof originalRender === "function"){
     window.render = function(force=false){
       const result=originalRender(force);
-      const count=drawThoughtBubbles();
-      if(count===0 && originalFocusedDrawer && runtime.selectedAgentId){
-        const selected=runtime.state.agentById.get(runtime.selectedAgentId);
-        if(selected)originalFocusedDrawer(selected);
-      }
+      drawThoughtBubbles();
       return result;
     };
   }
 
   window.AstraLifeLLMThoughtBubbles = Object.freeze({
     version:VERSION,
-    policy:"structured public summary only: goal/action/reason/plan; no hidden chain-of-thought or diagnostics",
+    policy:"natural public LLM text only; explicit thought > reason > plan; no hidden chain-of-thought, diagnostics, or legacy status fallback",
     extractForTest:response=>extractThought(response),
     getThought:agentId=>{
       const agent=runtime.state.agentById.get(Number(agentId));
