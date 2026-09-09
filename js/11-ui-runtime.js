@@ -158,7 +158,7 @@ function agentMotion(a,x,y){
 function pickWalkFrame(role){
   const frames=agentWalkSprites[role]||[];
   // hard swap every ~220ms wall-clock so legs visibly alternate
-  const idx=Math.floor(performance.now()/220)%AGENT_WALK_FRAMES;
+  const idx=Math.floor(performance.now()/280)%AGENT_WALK_FRAMES;
   const walk=frames[idx];
   if(walk&&walk.complete&&walk.naturalWidth>0)return walk;
   for(const f of frames){if(f&&f.complete&&f.naturalWidth>0)return f}
@@ -177,9 +177,8 @@ function drawAgent(a,selected){
     if(idle&&idle.complete&&idle.naturalWidth>0)sprite=idle;
   }
   if(sprite){
-    const bob=motion.moving?Math.sin(performance.now()/110)*0.6:0;
     ctx.save();
-    ctx.translate(x,y-1+bob);
+    ctx.translate(x,y-1);
     ctx.scale(facing,1);
     ctx.drawImage(sprite,-size/2,-size/2,size,size);
     ctx.restore();
