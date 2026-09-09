@@ -8,7 +8,7 @@ try{
   const pageErrors=[];
   page.on('pageerror',e=>pageErrors.push(String(e?.stack||e)));
   await page.goto(pathToFileURL(path.resolve('index.html')).href);
-  await page.waitForFunction(()=>window.AstraLifeTyphoonQueue&&window.AstraLifeTyphoonBYOK&&window.AstraColony);
+  await page.waitForFunction(()=>window.AstraLifeTyphoonQueue&&window.AstraLifeTyphoonBYOK&&window.AstraLifeLLMGate&&window.AstraColony);
 
   const result=await page.evaluate(async()=>{
     const failures=[];
@@ -58,22 +58,31 @@ try{
     };
 
     const firstRequests=agents.map(makeRequest);
-    const promises=firstRequests.map(req=>provider.decide(req,{}));
+    const promises=firstRequests.map((req,i)=>provider.decide(req,{agent:agents[i]}));
     await new Promise(r=>setTimeout(r,8));
     const queuedEarly=window.AstraLifeTyphoonQueue.status();
     const firstResponses=await Promise.all(promises);
 
-    // Give two Agents a second turn and confirm their chat histories do not cross.
-    await provider.decide(makeRequest(agents[0]),{});
-    await provider.decide(makeRequest(agents[1]),{});
+    // Explicit replan triggers force real Typhoon turns so this legacy P6.5 test
+    // still verifies independent multi-round provider histories under P6.6 gating.
+    runtime.state.tick++;
+    agents[0].mind.replanAtTick=runtime.state.tick;
+    await provider.decide(makeRequest(agents[0]),{agent:agents[0]});
+    runtime.state.tick++;
+    agents[1].mind.replanAtTick=runtime.state.tick;
+    await provider.decide(makeRequest(agents[1]),{agent:agents[1]});
     const a0=agents[0].id,a1=agents[1].id;
     const a0Second=outboundByAgent.get(a0)?.[1]||[];
     const a1Second=outboundByAgent.get(a1)?.[1]||[];
     const a0Text=a0Second.map(m=>m.content).join('\n');
     const a1Text=a1Second.map(m=>m.content).join('\n');
 
-    // Drive one Agent through enough private turns to force a safe rollover.
-    for(let i=0;i<20;i++)await provider.decide(makeRequest(agents[0]),{});
+    // Drive one Agent through enough explicit replans to force a safe rollover.
+    for(let i=0;i<20;i++){
+      runtime.state.tick++;
+      agents[0].mind.replanAtTick=runtime.state.tick;
+      await provider.decide(makeRequest(agents[0]),{agent:agents[0]});
+    }
 
     const final=window.AstraLifeTyphoonQueue.status();
     const s0=window.AstraLifeTyphoonBYOK.sessionStats(a0);
