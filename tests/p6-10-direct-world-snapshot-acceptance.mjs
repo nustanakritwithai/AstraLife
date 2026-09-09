@@ -14,13 +14,16 @@ try{
     const failures=[];
     const check=(name,condition,detail={})=>{if(!condition)failures.push({name,detail})};
     runtime.state.running=false;
-    runtime.reset('P6.10-DIRECT-SNAPSHOT-20260909');
+    runtime.reset('P6.11-SNAPSHOT-GOVERNOR-20260909');
     runtime.state.running=false;
 
+    let fakeNow=1_000_000;
+    Date.now=()=>fakeNow;
     let fetchCount=0;
     let lastAuth='';
     let lastBatchSize=0;
     let lastUrl='';
+
     globalThis.fetch=async(url,options={})=>{
       fetchCount++;
       lastUrl=String(url);
@@ -37,7 +40,7 @@ try{
         thought:`Agent ${a.agentId} snapshot thought`,
         goal:'observe',reason:'snapshot acceptance',plan:'wait',confidence:.8,replanAfterTicks:12
       }));
-      await new Promise(r=>setTimeout(r,20));
+      await new Promise(r=>setTimeout(r,10));
       return {
         ok:true,status:200,
         text:async()=>JSON.stringify({
@@ -48,32 +51,64 @@ try{
       };
     };
 
-    const testKey='test-key-not-secret-p610-123456789';
+    const testKey='test-key-not-secret-p611-123456789';
     window.AstraLifeWorldSnapshot.setKey(testKey);
     window.AstraLifeWorldSnapshot.enable();
     const provider=runtime.registry.get('world-snapshot-byok').adapter;
     const agents=runtime.state.agents.slice(0,60);
     const makeRequest=agent=>runtime.requestFactory.build(runtime.state,agent,runtime.observer.capture(runtime.state,agent),'world-snapshot-byok');
+    const runAll=()=>Promise.all(agents.map(a=>provider.decide(makeRequest(a),{agent:a})));
 
-    const first=await Promise.all(agents.map(a=>provider.decide(makeRequest(a),{agent:a})));
+    const first=await runAll();
     const status1=window.AstraLifeWorldSnapshot.status();
-
-    check('oneNetworkCallFor60Agents',fetchCount===1,{fetchCount});
+    check('bootstrapOneNetworkCallFor60Agents',fetchCount===1,{fetchCount});
     check('batchContains60Agents',lastBatchSize===60,{lastBatchSize});
     check('directTyphoonEndpoint',/api\.opentyphoon\.ai\/v1\/chat\/completions/.test(lastUrl),{lastUrl});
     check('browserSuppliesBearerKey',lastAuth===`Bearer ${testKey}`,{lastAuth:lastAuth?'<present>':''});
     check('all60Resolved',first.length===60&&first.every(r=>r.provider==='world-snapshot-byok'),{count:first.length});
-    check('snapshotStatsMatch',status1.stats.networkCalls===1&&status1.stats.lastBatchSize===60&&status1.stats.agentsResolved===60,{stats:status1.stats});
     check('keyNotInLocalStorage',!JSON.stringify({...localStorage}).includes(testKey),{});
     check('keyNotInSessionStorage',!JSON.stringify({...sessionStorage}).includes(testKey),{});
 
-    runtime.state.tick++;
-    const second=await Promise.all(agents.map(a=>provider.decide(makeRequest(a),{agent:a})));
-    const status2=window.AstraLifeWorldSnapshot.status();
-    check('nextTickUsesOneMoreSnapshotCall',fetchCount===2&&second.length===60,{fetchCount,second:second.length});
-    check('twoTicksTwoNetworkCalls',status2.stats.networkCalls===2,{stats:status2.stats});
+    // Simulate accelerated world ticks: many ticks may pass, but wall-clock time
+    // is still below the 30s periodic governor. No extra network call is allowed.
+    for(let i=0;i<10;i++){
+      runtime.state.tick++;
+      fakeNow+=1000;
+      const reused=await runAll();
+      check(`acceleratedTick${i+1}Reuses`,reused.every(r=>r.diagnostics?.decisionSource==='snapshot-reuse'),{tick:runtime.state.tick});
+    }
+    const statusFast=window.AstraLifeWorldSnapshot.status();
+    check('tenFastTicksDoNotAddNetworkCalls',fetchCount===1,{fetchCount,statusFast});
+    check('reuseCounterRises',statusFast.stats.reuses>=600,{reuses:statusFast.stats.reuses});
 
-    return {ok:failures.length===0,failures,fetchCount,lastBatchSize,status1,status2,pageErrors:[]};
+    // Reach just under 30 seconds real time: still no periodic network call.
+    fakeNow=1_029_999;
+    runtime.state.tick++;
+    await runAll();
+    check('under30SecondsStillReuses',fetchCount===1,{fetchCount});
+
+    // Cross 30 seconds real time: exactly one new snapshot for all 60 agents.
+    fakeNow=1_030_001;
+    runtime.state.tick++;
+    const periodic=await runAll();
+    const statusPeriodic=window.AstraLifeWorldSnapshot.status();
+    check('periodicSnapshotAddsExactlyOneCall',fetchCount===2&&periodic.length===60,{fetchCount});
+    check('periodicCounter',statusPeriodic.stats.periodicSnapshots===1,{stats:statusPeriodic.stats});
+
+    // An action failure may wake the snapshot before the next 30s boundary,
+    // but only after the 8s urgent cooldown.
+    fakeNow+=8001;
+    const a=agents[0];
+    a.runtime.lastOutcome={actionId:'p611-fail-1',agentId:a.id,actionType:'WAIT',ok:false,message:'forced failure',significant:true};
+    runtime.state.tick++;
+    await runAll();
+    const statusUrgent=window.AstraLifeWorldSnapshot.status();
+    check('failureTriggersOneUrgentSnapshot',fetchCount===3,{fetchCount,statusUrgent});
+    check('urgentCounter',statusUrgent.stats.urgentSnapshots>=1,{stats:statusUrgent.stats});
+    check('rpmIsWindowedNotCumulative',statusUrgent.governor.rpm===3,{governor:statusUrgent.governor});
+    check('totalNetworkCallsRemainSeparate',statusUrgent.stats.networkCalls===3,{stats:statusUrgent.stats});
+
+    return {ok:failures.length===0,failures,fetchCount,lastBatchSize,status1,statusFast,statusPeriodic,statusUrgent,pageErrors:[]};
   });
 
   const relevantPageErrors=pageErrors.filter(e=>!e.includes('pickWalkFrame is not defined'));

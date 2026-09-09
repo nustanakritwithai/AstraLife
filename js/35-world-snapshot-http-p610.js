@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION="p6.10-direct-world-snapshot-byok";
+  const VERSION="p6.11-direct-world-snapshot-governor";
   const PROVIDER_ID="world-snapshot-byok";
   const MODEL="typhoon-v2.5-30b-a3b-instruct";
   const ENDPOINT="https://api.opentyphoon.ai/v1/chat/completions";
@@ -9,20 +9,109 @@
   const MAX_RESPONSE_BYTES=900000;
   const FLUSH_DELAY_MS=0;
   const MAX_OUTPUT_TOKENS=7000;
+  const PERIODIC_SNAPSHOT_MS=30000;
+  const URGENT_COOLDOWN_MS=8000;
+  const REUSABLE_ACTIONS=new Set(["MOVE","GATHER","REST","WAIT","HEAL","BUILD"]);
 
   let sessionKey="";
   const batches=new Map();
+  const cachedByAgent=new Map();
+  const networkStarts=[];
   let inFlight=0;
+  let lastNetworkAt=0;
+  let lastSimulationId="";
+  let lastStorm=null;
+  let criticalAgents=new Set();
+  const seenOutcomeIds=new Set();
+  const seenMessageIds=new Set();
+  const pendingUrgentReasons=new Set();
+
   const stats={
     snapshots:0,networkCalls:0,agentsRequested:0,agentsResolved:0,agentsMissing:0,
+    reuses:0,holds:0,urgentSnapshots:0,periodicSnapshots:0,bootstrapSnapshots:0,
     errors:0,lastError:null,lastSuccessAt:null,lastSnapshotId:null,lastBatchSize:0,
-    lastModel:null,lastUsage:null
+    lastModel:null,lastUsage:null,lastReason:null
   };
 
   const clone=v=>JSON.parse(JSON.stringify(v));
   const safeText=(v,max)=>String(v??"").replace(/\s+/g," ").trim().slice(0,max);
   const configured=()=>sessionKey.length>=12;
   const batchKeyFor=request=>`${request.simulation.id}:${request.simulation.tick}:${runtime.decisionRouter.epoch}`;
+  const isCritical=a=>!!a?.alive&&(Number(a.body?.hp)<45||Number(a.body?.thirst)>78||Number(a.body?.hunger)>80);
+  const isUrgentMessage=m=>m&&(m.intent==="WARN"||m.intent==="REQUEST_HELP"||Number(m.urgency)>=.8);
+
+  function boundedAdd(set,value,cap=768){
+    if(value===undefined||value===null||value==="")return;
+    set.add(String(value));
+    while(set.size>cap)set.delete(set.values().next().value);
+  }
+
+  function pruneNetworkStarts(now=Date.now()){
+    const floor=now-60000;
+    while(networkStarts.length&&networkStarts[0]<floor)networkStarts.shift();
+  }
+
+  function resetGovernor(simulationId){
+    cachedByAgent.clear();
+    batches.clear();
+    pendingUrgentReasons.clear();
+    seenOutcomeIds.clear();
+    seenMessageIds.clear();
+    criticalAgents=new Set();
+    lastNetworkAt=0;
+    lastStorm=null;
+    lastSimulationId=String(simulationId||"");
+  }
+
+  function scanWorldEvents(){
+    const state=runtime.state;
+    const storm=Number(state?.stormTicks||0)>0;
+    if(lastStorm===null)lastStorm=storm;
+    else if(storm!==lastStorm){pendingUrgentReasons.add("environment-change");lastStorm=storm;}
+
+    const currentCritical=new Set();
+    for(const agent of state?.agents||[]){
+      if(!agent?.alive)continue;
+      if(isCritical(agent)){
+        currentCritical.add(Number(agent.id));
+        if(!criticalAgents.has(Number(agent.id)))pendingUrgentReasons.add("entered-critical");
+      }
+
+      const outcome=agent.runtime?.lastOutcome;
+      const outcomeId=outcome?.actionId;
+      if(outcomeId&&!seenOutcomeIds.has(String(outcomeId))){
+        boundedAdd(seenOutcomeIds,outcomeId);
+        if(!outcome.ok)pendingUrgentReasons.add("action-failed");
+        else if(outcome.reached)pendingUrgentReasons.add("plan-stage-complete");
+        else if(outcome.significant&&String(outcome.actionType||"")!=="SHARE")pendingUrgentReasons.add("plan-stage-complete");
+      }
+
+      for(const message of agent.social?.inbox||[]){
+        if(!isUrgentMessage(message))continue;
+        if(seenMessageIds.has(String(message.id)))continue;
+        boundedAdd(seenMessageIds,message.id);
+        pendingUrgentReasons.add("urgent-message");
+      }
+    }
+    criticalAgents=currentCritical;
+  }
+
+  function shouldNetwork(request){
+    const simulationId=String(request?.simulation?.id||"");
+    if(simulationId!==lastSimulationId)resetGovernor(simulationId);
+    scanWorldEvents();
+
+    const alive=(runtime.state?.agents||[]).filter(a=>a.alive);
+    const missingCache=alive.some(a=>!cachedByAgent.has(Number(a.id)));
+    if(stats.snapshots===0||missingCache)return {network:true,reason:stats.snapshots===0?"bootstrap":"new-agent"};
+
+    const now=Date.now();
+    if(pendingUrgentReasons.size&&now-lastNetworkAt>=URGENT_COOLDOWN_MS){
+      return {network:true,reason:[...pendingUrgentReasons].join("+")};
+    }
+    if(now-lastNetworkAt>=PERIODIC_SNAPSHOT_MS)return {network:true,reason:"periodic"};
+    return {network:false,reason:"reuse"};
+  }
 
   function stripFence(text){
     const s=String(text||"").trim();
@@ -33,23 +122,13 @@
   function compactAgentRequest(request){
     const o=request.observation||{},m=request.memory||{};
     return {
-      agentId:Number(request.agent.id),
-      role:safeText(request.agent.role,20),
-      capacity:Number(request.agent.capacity)||0,
-      self:{
-        x:o.self?.x,y:o.self?.y,hp:o.self?.hp,hunger:o.self?.hunger,thirst:o.self?.thirst,
-        energy:o.self?.energy,carry:clone(o.self?.carry||{})
-      },
-      camp:{
-        visible:!!o.camp?.visible,x:o.camp?.x,y:o.camp?.y,distance:o.camp?.distance,
-        stock:clone(o.camp?.stock||{}),shelter:o.camp?.shelter
-      },
+      agentId:Number(request.agent.id),role:safeText(request.agent.role,20),capacity:Number(request.agent.capacity)||0,
+      self:{x:o.self?.x,y:o.self?.y,hp:o.self?.hp,hunger:o.self?.hunger,thirst:o.self?.thirst,energy:o.self?.energy,carry:clone(o.self?.carry||{})},
+      camp:{visible:!!o.camp?.visible,x:o.camp?.x,y:o.camp?.y,distance:o.camp?.distance,stock:clone(o.camp?.stock||{}),shelter:o.camp?.shelter},
       environment:clone(o.environment||{}),
       resources:(o.visibleResources||[]).slice(0,6).map(r=>({id:r.id,type:r.type,x:r.x,y:r.y,distance:r.distance,amount:r.amount})),
       peers:(o.nearbyAgents||[]).slice(0,5).map(p=>({id:p.id,role:p.role,x:p.x,y:p.y,distance:p.distance,hpBand:p.hpBand})),
-      messages:(o.messages||[]).slice(0,3).map(msg=>({
-        id:msg.id,from:msg.from,intent:msg.intent,urgency:msg.urgency,text:safeText(msg.text,90)
-      })),
+      messages:(o.messages||[]).slice(0,3).map(msg=>({id:msg.id,from:msg.from,intent:msg.intent,urgency:msg.urgency,text:safeText(msg.text,90)})),
       memory:{
         goal:safeText(m.currentGoal,45),reason:safeText(m.goalReason,80),plan:safeText(m.currentPlan,100),
         beliefStock:clone(m.beliefStock||{}),knownShelters:Number(m.knownShelters)||0,failedActions:Number(m.failedActions)||0,
@@ -66,10 +145,8 @@
     const snapshotId=`${first?.simulation?.id||"world"}:${tick}:${batch.epoch}`;
     batch.snapshotId=snapshotId;
     return {
-      snapshotId,
-      simulationId:String(first.simulation.id),
-      seed:String(first.simulation.seed),
-      tick,day:first.simulation.day,alive:first.simulation.alive,
+      snapshotId,simulationId:String(first.simulation.id),seed:String(first.simulation.seed),tick,
+      day:first.simulation.day,alive:first.simulation.alive,
       world:{environment:clone(first.observation?.environment||{}),camp:clone(first.observation?.camp||{})},
       agents:rows.map(row=>compactAgentRequest(row.request))
     };
@@ -78,17 +155,17 @@
   function promptFor(snapshot){
     return [
       "You are the World Snapshot Brain for AstraLife.",
-      "One request contains many independent agents from one authoritative world tick.",
+      "One request contains many independent agents from one authoritative world snapshot.",
       "Return compact JSON only. Do not reveal chain-of-thought.",
       "Return exactly one decision for EVERY agentId in the snapshot.",
       "Use only each agent's supplied observation/memory and choose only from that agent's allowedTypes.",
+      "Prefer actions that can safely continue for several simulation ticks; use one-shot actions only when clearly needed.",
       "Never mutate world state directly; the client Validator and Resolver are authoritative.",
       "Keep thought <= 80 chars, goal <= 40, reason <= 90, plan <= 100.",
       "Output shape:",
       '{"decisions":[{"agentId":1,"action":{"type":"WAIT","payload":{}},"thought":"short public thought","goal":"short goal","reason":"observable reason","plan":"short plan","confidence":0.7,"replanAfterTicks":12}]}',
       "Payloads: MOVE{x,y,speed?}; GATHER{resourceId,resourceType,carryType}; CONSUME{resource}; HEAL{targetAgentId}; SHARE{intent,facts,targetAgentId?,replyTo?,urgency?,text?}; DEPOSIT/REST/BUILD/WAIT use {}.",
-      "World snapshot:",
-      JSON.stringify(snapshot)
+      "World snapshot:",JSON.stringify(snapshot)
     ].join("\n");
   }
 
@@ -102,22 +179,35 @@
     const plan=safeText(row?.plan||type,220);
     const thought=safeText(row?.thought||reason||plan||goal,140);
     return {
-      protocol:PROTOCOL.decisionResponse,
-      requestId:request.requestId,
-      agentId:request.agent.id,
-      tick:request.simulation.tick,
-      provider:PROVIDER_ID,
+      protocol:PROTOCOL.decisionResponse,requestId:request.requestId,agentId:request.agent.id,tick:request.simulation.tick,provider:PROVIDER_ID,
       decision:{
         action:{protocol:PROTOCOL.action,type,payload:type===ACTION.WAIT?{}:payload},
         cognition:{goal,reason,plan,thought},thought,reason,
-        confidence:clamp(Number(row?.confidence)||.55,0,1),
-        replanAfterTicks:clamp(Math.floor(Number(row?.replanAfterTicks)||12),2,120)
+        confidence:clamp(Number(row?.confidence)||.55,0,1),replanAfterTicks:clamp(Math.floor(Number(row?.replanAfterTicks)||12),2,120)
       },
-      diagnostics:{
-        engine:"direct-browser-world-snapshot",snapshotId,model:providerModel||MODEL,
-        keyPersistence:"memory-only",batchNetworkCall:true
-      }
+      diagnostics:{engine:"direct-browser-world-snapshot",snapshotId,model:providerModel||MODEL,keyPersistence:"memory-only",batchNetworkCall:true,decisionSource:"snapshot-network"}
     };
+  }
+
+  function reuseDecision(request){
+    const cached=cachedByAgent.get(Number(request.agent.id));
+    if(!cached)return null;
+    const next=clone(cached.response);
+    const type=String(next?.decision?.action?.type||ACTION.WAIT);
+    next.requestId=request.requestId;next.agentId=request.agent.id;next.tick=request.simulation.tick;next.provider=PROVIDER_ID;
+    if(REUSABLE_ACTIONS.has(type)){
+      stats.reuses++;
+      next.diagnostics={...(next.diagnostics||{}),batchNetworkCall:false,decisionSource:"snapshot-reuse",reusedFromSnapshot:cached.snapshotId};
+      return next;
+    }
+    stats.holds++;
+    next.decision.action={protocol:PROTOCOL.action,type:ACTION.WAIT,payload:{}};
+    next.decision.thought="";
+    next.decision.reason="hold after one-shot action until the next world snapshot";
+    next.decision.cognition={...(next.decision.cognition||{}),thought:""};
+    next.decision.replanAfterTicks=2;
+    next.diagnostics={...(next.diagnostics||{}),batchNetworkCall:false,decisionSource:"snapshot-one-shot-hold",reusedFromSnapshot:cached.snapshotId,suppressThoughtBubble:true};
+    return next;
   }
 
   async function dispatchBatch(batch){
@@ -126,19 +216,23 @@
     const snapshot=snapshotFor(batch);
     const entries=[...batch.entries.entries()];
     if(snapshot.agents.length>MAX_BATCH_AGENTS){
-      const error=new Error(`P6.10 snapshot agent cap exceeded (${snapshot.agents.length}/${MAX_BATCH_AGENTS})`);
-      for(const [,entry] of entries)entry.reject(error);
-      batches.delete(batch.key);return;
+      const error=new Error(`P6.11 snapshot agent cap exceeded (${snapshot.agents.length}/${MAX_BATCH_AGENTS})`);
+      for(const [,entry] of entries)entry.reject(error);batches.delete(batch.key);return;
     }
     if(!configured()){
       const error=new Error("World Snapshot API key is not configured");
-      for(const [,entry] of entries)entry.reject(error);
-      batches.delete(batch.key);return;
+      for(const [,entry] of entries)entry.reject(error);batches.delete(batch.key);return;
     }
 
+    const now=Date.now();
+    lastNetworkAt=now;networkStarts.push(now);pruneNetworkStarts(now);
     stats.snapshots++;stats.networkCalls++;stats.agentsRequested+=snapshot.agents.length;
-    stats.lastSnapshotId=snapshot.snapshotId;stats.lastBatchSize=snapshot.agents.length;
+    stats.lastSnapshotId=snapshot.snapshotId;stats.lastBatchSize=snapshot.agents.length;stats.lastReason=batch.reason||"snapshot";
+    if(batch.reason==="periodic")stats.periodicSnapshots++;
+    else if(batch.reason==="bootstrap"||batch.reason==="new-agent")stats.bootstrapSnapshots++;
+    else stats.urgentSnapshots++;
     inFlight++;
+
     try{
       const controller=new AbortController();
       const timer=setTimeout(()=>controller.abort(),CONFIG.providerTimeoutMs);
@@ -160,19 +254,15 @@
       }finally{clearTimeout(timer)}
 
       const text=await response.text();
-      if(text.length>MAX_RESPONSE_BYTES)throw new Error("P6.10 Typhoon response too large");
-      if(!response.ok)throw new Error(`P6.10 Typhoon HTTP ${response.status}: ${text.slice(0,220)}`);
-
-      let completion;try{completion=JSON.parse(text)}catch(error){throw new Error(`P6.10 invalid API JSON: ${error.message}`)}
+      if(text.length>MAX_RESPONSE_BYTES)throw new Error("P6.11 Typhoon response too large");
+      if(!response.ok)throw new Error(`P6.11 Typhoon HTTP ${response.status}: ${text.slice(0,220)}`);
+      let completion;try{completion=JSON.parse(text)}catch(error){throw new Error(`P6.11 invalid API JSON: ${error.message}`)}
       const content=completion?.choices?.[0]?.message?.content;
-      if(typeof content!=="string")throw new Error("P6.10 Typhoon response content missing");
-      let parsed;try{parsed=JSON.parse(stripFence(content))}catch(error){throw new Error(`P6.10 snapshot JSON invalid: ${error.message}`)}
+      if(typeof content!=="string")throw new Error("P6.11 Typhoon response content missing");
+      let parsed;try{parsed=JSON.parse(stripFence(content))}catch(error){throw new Error(`P6.11 snapshot JSON invalid: ${error.message}`)}
       const decisions=Array.isArray(parsed?.decisions)?parsed.decisions:[];
       const byAgent=new Map();
-      for(const row of decisions){
-        const id=Number(row?.agentId);
-        if(Number.isInteger(id)&&!byAgent.has(id))byAgent.set(id,row);
-      }
+      for(const row of decisions){const id=Number(row?.agentId);if(Number.isInteger(id)&&!byAgent.has(id))byAgent.set(id,row);}
 
       for(const [agentId,entry] of entries){
         let row=byAgent.get(Number(agentId));
@@ -180,11 +270,12 @@
           stats.agentsMissing++;
           row={agentId,action:{type:ACTION.WAIT,payload:{}},thought:"",goal:entry.request.memory.currentGoal,reason:"snapshot omitted this agent",plan:"WAIT",confidence:.35,replanAfterTicks:2};
         }
-        stats.agentsResolved++;
-        entry.resolve(toDecisionResponse(row,entry.request,snapshot.snapshotId,completion?.model||MODEL));
+        const result=toDecisionResponse(row,entry.request,snapshot.snapshotId,completion?.model||MODEL);
+        cachedByAgent.set(Number(agentId),{response:clone(result),snapshotId:snapshot.snapshotId,snapshotTick:snapshot.tick});
+        stats.agentsResolved++;entry.resolve(result);
       }
-      stats.lastModel=completion?.model||MODEL;stats.lastUsage=completion?.usage||null;
-      stats.lastError=null;stats.lastSuccessAt=Date.now();
+      pendingUrgentReasons.clear();
+      stats.lastModel=completion?.model||MODEL;stats.lastUsage=completion?.usage||null;stats.lastError=null;stats.lastSuccessAt=Date.now();
     }catch(error){
       stats.errors++;stats.lastError=String(error?.message||error);
       for(const [,entry] of entries)entry.reject(error instanceof Error?error:new Error(String(error)));
@@ -198,40 +289,46 @@
     isConfigured(){return configured()}
     decide(request,context){
       if(!configured())return Promise.reject(new Error("World Snapshot API key is not configured"));
+      const gate=shouldNetwork(request);
+      if(!gate.network){
+        const cached=reuseDecision(request);
+        if(cached)return cached;
+      }
       const key=batchKeyFor(request);
       let batch=batches.get(key);
       if(!batch){
-        batch={key,epoch:runtime.decisionRouter.epoch,entries:new Map(),dispatched:false,timer:null,snapshotId:null};
-        batches.set(key,batch);
-        batch.timer=setTimeout(()=>dispatchBatch(batch),FLUSH_DELAY_MS);
+        batch={key,epoch:runtime.decisionRouter.epoch,entries:new Map(),dispatched:false,timer:null,snapshotId:null,reason:gate.reason||"snapshot"};
+        batches.set(key,batch);batch.timer=setTimeout(()=>dispatchBatch(batch),FLUSH_DELAY_MS);
       }
-      return new Promise((resolve,reject)=>{
-        batch.entries.set(Number(request.agent.id),{request,context,resolve,reject});
-      });
+      return new Promise((resolve,reject)=>{batch.entries.set(Number(request.agent.id),{request,context,resolve,reject});});
     }
     status(){
-      return {version:VERSION,configured:configured(),endpoint:ENDPOINT,model:MODEL,keyConfigured:sessionKey.length>=12,inFlight,pendingSnapshots:batches.size,stats:{...stats}};
+      pruneNetworkStarts();
+      return {
+        version:VERSION,configured:configured(),endpoint:ENDPOINT,model:MODEL,keyConfigured:sessionKey.length>=12,
+        inFlight,pendingSnapshots:batches.size,cachedAgents:cachedByAgent.size,
+        governor:{periodicSnapshotMs:PERIODIC_SNAPSHOT_MS,urgentCooldownMs:URGENT_COOLDOWN_MS,pendingUrgentReasons:[...pendingUrgentReasons],rpm:networkStarts.length,lastNetworkAt},
+        stats:{...stats}
+      };
     }
   }
 
   const provider=new WorldSnapshotByokProvider();
   window.AstraColony.registerProvider(PROVIDER_ID,provider,{
-    label:"World Snapshot · Direct BYOK",
+    label:"World Snapshot · Direct BYOK · governed",
     async:true,
-    description:"Collect all Agent requests for one tick, call Typhoon directly once from the browser, then fan decisions back through Validator/Resolver"
+    description:"One direct Typhoon world snapshot only when periodic or meaningful world events require it; safe decisions are reused between snapshots"
   });
 
   const select=document.getElementById("providerSelect");
   if(select&&!select.querySelector(`option[value="provider:${PROVIDER_ID}"]`)){
-    const option=document.createElement("option");
-    option.value=`provider:${PROVIDER_ID}`;option.textContent="World Snapshot · Direct · 1 call/tick";select.appendChild(option);
+    const option=document.createElement("option");option.value=`provider:${PROVIDER_ID}`;option.textContent="World Snapshot · Direct · governed";select.appendChild(option);
   }
 
   const endpointInput=document.getElementById("endpointInput");
   const keyInput=document.createElement("input");
   keyInput.id="snapshotApiKeyInput";keyInput.type="password";keyInput.autocomplete="off";keyInput.spellcheck=false;
-  keyInput.placeholder="Typhoon API key · Snapshot · session only";
-  keyInput.setAttribute("aria-label","Typhoon API key for direct world snapshot mode");
+  keyInput.placeholder="Typhoon API key · Snapshot · session only";keyInput.setAttribute("aria-label","Typhoon API key for direct world snapshot mode");
   const useBtn=document.createElement("button");useBtn.id="useSnapshotBtn";useBtn.textContent="ใช้ Snapshot AI";
   const clearBtn=document.createElement("button");clearBtn.id="clearSnapshotKeyBtn";clearBtn.textContent="ล้าง Snapshot Key";
   const badge=document.createElement("span");badge.id="snapshotApiStatus";badge.className="provider-badge";badge.style.whiteSpace="nowrap";badge.style.fontSize="11px";
@@ -239,42 +336,38 @@
   useBtn.onclick=()=>{
     const key=String(keyInput.value||"").trim();
     if(key.length<12){keyInput.setCustomValidity("ใส่ Typhoon API key ก่อน");keyInput.reportValidity();return;}
-    keyInput.setCustomValidity("");sessionKey=key;keyInput.value="";
-    runtime.setProviderMode(`provider:${PROVIDER_ID}`);
-    if(select)select.value=`provider:${PROVIDER_ID}`;
-    updateHud();
+    keyInput.setCustomValidity("");
+    if(key!==sessionKey)resetGovernor(runtime.state?.simulationId||"");
+    sessionKey=key;keyInput.value="";runtime.setProviderMode(`provider:${PROVIDER_ID}`);if(select)select.value=`provider:${PROVIDER_ID}`;updateHud();
   };
   clearBtn.onclick=()=>{
-    sessionKey="";keyInput.value="";
+    sessionKey="";keyInput.value="";resetGovernor(runtime.state?.simulationId||"");
     if(runtime.decisionRouter.mode===`provider:${PROVIDER_ID}`)runtime.setProviderMode(PROVIDER_MODE.LOCAL);
     if(select)select.value=PROVIDER_MODE.LOCAL;updateHud();
   };
 
   if(endpointInput){
-    endpointInput.insertAdjacentElement("afterend",badge);
-    endpointInput.insertAdjacentElement("afterend",clearBtn);
-    endpointInput.insertAdjacentElement("afterend",useBtn);
-    endpointInput.insertAdjacentElement("afterend",keyInput);
+    endpointInput.insertAdjacentElement("afterend",badge);endpointInput.insertAdjacentElement("afterend",clearBtn);
+    endpointInput.insertAdjacentElement("afterend",useBtn);endpointInput.insertAdjacentElement("afterend",keyInput);
   }
 
   function renderStatus(){
-    const s=provider.status(),st=s.stats;
+    const s=provider.status(),st=s.stats,g=s.governor;
     if(!s.keyConfigured){badge.textContent="Snapshot AI · ยังไม่ใส่ Key";badge.classList.remove("pending","error");return;}
     if(st.errors>0&&st.agentsResolved===0){
       badge.textContent=/fetch|network|cors/i.test(String(st.lastError||""))?"Snapshot AI ✕ Network/CORS":`Snapshot AI ✕ ${st.errors}`;
       badge.classList.add("error");return;
     }
-    badge.textContent=`Snapshot ✓${st.snapshots} · Batch ${st.lastBatchSize} · Agents ${st.agentsResolved} · Net ${st.networkCalls}`;
+    badge.textContent=`Snapshot · RPM ${g.rpm} · Total ${st.networkCalls} · Batch ${st.lastBatchSize} · Reuse ${st.reuses} · Hold ${st.holds}`;
     badge.classList.toggle("pending",s.inFlight>0||s.pendingSnapshots>0);badge.classList.remove("error");
   }
   setInterval(renderStatus,350);renderStatus();
 
   window.AstraLifeWorldSnapshot=Object.freeze({
     version:VERSION,providerId:PROVIDER_ID,mode:`provider:${PROVIDER_ID}`,endpoint:ENDPOINT,model:MODEL,
-    setKey:key=>{sessionKey=String(key||"").trim();return configured()},
-    clearKey:()=>{sessionKey="";return true},hasKey:()=>sessionKey.length>=12,
+    setKey:key=>{const next=String(key||"").trim();if(next!==sessionKey)resetGovernor(runtime.state?.simulationId||"");sessionKey=next;return configured()},
+    clearKey:()=>{sessionKey="";resetGovernor(runtime.state?.simulationId||"");return true},hasKey:()=>sessionKey.length>=12,
     enable:()=>{if(!configured())throw new Error("Snapshot API key not configured");runtime.setProviderMode(`provider:${PROVIDER_ID}`);return runtime.decisionRouter.mode},
-    disable:()=>{runtime.setProviderMode(PROVIDER_MODE.LOCAL);return runtime.decisionRouter.mode},
-    status:()=>provider.status()
+    disable:()=>{runtime.setProviderMode(PROVIDER_MODE.LOCAL);return runtime.decisionRouter.mode},status:()=>provider.status()
   });
 })();
