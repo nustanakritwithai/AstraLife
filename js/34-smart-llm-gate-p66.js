@@ -204,7 +204,7 @@
       realTriggers:["bootstrap","action-failed","plan-stage-complete","urgent-message","environment-change","entered-critical","scheduled-replan"],
       ignoredImmediateTriggers:["ordinary-message","new-fact","share-success","periodic-max-stale","selected-refresh","critical-refresh"],
       reusableActions:[...REUSABLE_ACTIONS],
-      admission:"event-driven; no periodic herd refresh; full-throughput dispatcher remains available when real reasoning is required"
+      admission:"no batch/defer; event-driven reasoning only; no periodic herd refresh; full-throughput dispatcher remains available when real reasoning is required"
     })
   });
 })();
