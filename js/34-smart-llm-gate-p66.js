@@ -1,36 +1,37 @@
 (() => {
   "use strict";
 
-  const VERSION="p6.8-full-throughput-smart-gate";
+  const VERSION="p6.9-event-driven-reasoning";
   const PROVIDER_ID="typhoon-byok";
-  const BASE_MAX_STALE_TICKS=6;
-  const STALE_JITTER_TICKS=4;
-  const SELECTED_MAX_STALE_TICKS=3;
-  const CRITICAL_REFRESH_TICKS=2;
-  const REUSABLE_ACTIONS=new Set(["MOVE","GATHER","REST","WAIT"]);
+  const BACKGROUND_MIN_REPLAN_TICKS=12;
+  const URGENT_MIN_REPLAN_TICKS=2;
+  const REUSABLE_ACTIONS=new Set(["MOVE","GATHER","REST","WAIT","HEAL","BUILD"]);
+  const URGENT_REASONS=new Set(["action-failed","urgent-message","environment-change","entered-critical"]);
+  const URGENT_MESSAGE_INTENTS=new Set(["WARN","REQUEST_HELP"]);
 
   const existing=runtime.registry.get(PROVIDER_ID);
   if(!existing?.adapter||typeof existing.adapter.decide!=="function")return;
   const upstream=existing.adapter;
   const cache=new Map();
   const stats={
-    realCalls:0,reuses:0,bootstrap:0,triggered:0,
+    realCalls:0,reuses:0,holds:0,bootstrap:0,triggered:0,
+    suppressedNonUrgentMessages:0,suppressedFacts:0,
     byReason:{},lastReason:null,lastRealAt:null
   };
 
   const incReason=reason=>{stats.byReason[reason]=(stats.byReason[reason]||0)+1;stats.lastReason=reason};
   const sessionKey=request=>`${request?.simulation?.id||"?"}:${request?.agent?.id||"?"}:${request?.sessionId||"?"}`;
-  const messageSig=request=>(request?.observation?.messages||[]).map(m=>m.id).sort((a,b)=>a-b).join(",");
-  const factSig=request=>(request?.memory?.newFactKeys||[]).slice().sort().join("|");
   const critical=request=>{
     const s=request?.observation?.self||{};
     return Number(s.hp)<45||Number(s.thirst)>78||Number(s.hunger)>80;
   };
   const storm=request=>!!request?.observation?.environment?.stormActive;
-  const selected=request=>Number(runtime.selectedAgentId)===Number(request?.agent?.id);
-  const staleThresholdFor=request=>BASE_MAX_STALE_TICKS+((Math.max(1,Number(request?.agent?.id)||1)-1)%STALE_JITTER_TICKS);
+  const clone=value=>JSON.parse(JSON.stringify(value));
 
-  function clone(value){return JSON.parse(JSON.stringify(value))}
+  function urgentMessage(request){
+    const messages=request?.observation?.messages||[];
+    return messages.find(m=>Number(m?.urgency)>=.8||URGENT_MESSAGE_INTENTS.has(String(m?.intent||"")))||null;
+  }
 
   function rebindResponse(entry,request){
     const next=clone(entry.response);
@@ -52,36 +53,72 @@
     return next;
   }
 
+  function holdResponse(entry,request){
+    const tick=Number(request.simulation.tick||0);
+    const c=entry?.response?.decision?.cognition||{};
+    const remaining=Math.max(1,Number(entry?.nextDueTick||tick+1)-tick);
+    return {
+      protocol:PROTOCOL.decisionResponse,
+      requestId:request.requestId,
+      agentId:request.agent.id,
+      tick,
+      provider:PROVIDER_ID,
+      decision:{
+        action:{protocol:PROTOCOL.action,type:ACTION.WAIT,payload:{}},
+        cognition:{
+          goal:String(c.goal||request?.memory?.currentGoal||"observe").slice(0,80),
+          reason:"continue existing LLM plan without repeating a one-shot action",
+          plan:String(c.plan||request?.memory?.currentPlan||"wait for next reasoning event").slice(0,220),
+          thought:""
+        },
+        thought:"",
+        reason:"continue existing LLM plan without repeating a one-shot action",
+        confidence:Number(entry?.response?.decision?.confidence||.7),
+        replanAfterTicks:remaining
+      },
+      diagnostics:{
+        engine:"astralife-event-driven-gate",
+        decisionSource:"cached-llm-one-shot-hold",
+        reusedFromTick:Number(entry?.response?.tick??-1),
+        originalReplanDueTick:Number(entry?.nextDueTick||-1)
+      }
+    };
+  }
+
+  function outcomeTrigger(request,context,entry){
+    const agent=context?.agent;
+    const outcome=agent?.runtime?.lastOutcome;
+    if(!outcome?.actionId||outcome.actionId===entry.lastOutcomeActionId)return null;
+    if(!outcome.ok)return "action-failed";
+
+    const type=String(outcome.actionType||"");
+    if(type==="MOVE"&&outcome.reached)return "plan-stage-complete";
+    if(type==="GATHER"&&outcome.significant)return "plan-stage-complete";
+    if(type==="DEPOSIT"||type==="CONSUME")return "plan-stage-complete";
+    if(type==="BUILD"&&agent?.mind&&Number(agent.mind.replanAtTick)<=Number(request?.simulation?.tick||0))return "plan-stage-complete";
+    if(type==="REST"&&agent?.mind&&Number(agent.mind.replanAtTick)<=Number(request?.simulation?.tick||0))return "plan-stage-complete";
+    // SHARE is intentionally NOT a reasoning trigger. A normal social message
+    // should not cause the sender and every receiver to fan out into new API calls.
+    return null;
+  }
+
   function triggerReason(request,context,entry){
     if(!entry)return "bootstrap";
     const tick=Number(request?.simulation?.tick||0);
-    const agent=context?.agent;
-    const elapsed=tick-entry.lastRealTick;
-    const actionType=String(entry.response?.decision?.action?.type||"");
-    if(!REUSABLE_ACTIONS.has(actionType))return "one-shot-action";
 
-    const outcome=agent?.runtime?.lastOutcome;
-    if(outcome?.actionId&&outcome.actionId!==entry.lastOutcomeActionId){
-      if(!outcome.ok)return "action-failed";
-      if(outcome.significant)return "significant-outcome";
-      if(!REUSABLE_ACTIONS.has(String(outcome.actionType||"")))return "one-shot-outcome";
-    }
+    const outcomeReason=outcomeTrigger(request,context,entry);
+    if(outcomeReason)return outcomeReason;
 
-    const msg=messageSig(request);
-    if(msg&&msg!==entry.messageSig)return "new-message";
-    const facts=factSig(request);
-    if(facts&&facts!==entry.factSig)return "new-fact";
+    const urgent=urgentMessage(request);
+    if(urgent)return "urgent-message";
+
     const nowStorm=storm(request);
     if(nowStorm!==entry.storm)return "environment-change";
 
     const nowCritical=critical(request);
     if(nowCritical&&!entry.critical)return "entered-critical";
-    if(nowCritical&&elapsed>=CRITICAL_REFRESH_TICKS)return "critical-refresh";
 
     if(tick>=entry.nextDueTick)return "scheduled-replan";
-    if(agent?.mind&&Number(agent.mind.replanAtTick)<=tick)return "scheduled-replan";
-    if(selected(request)&&elapsed>=SELECTED_MAX_STALE_TICKS)return "selected-refresh";
-    if(elapsed>=staleThresholdFor(request))return "max-stale-refresh";
     return null;
   }
 
@@ -89,13 +126,13 @@
     const key=sessionKey(request);
     const outcome=context?.agent?.runtime?.lastOutcome;
     const lastRealTick=Number(request.simulation.tick||0);
-    const replanAfter=Math.max(1,Number(response?.decision?.replanAfterTicks||1));
+    const requested=Math.max(1,Number(response?.decision?.replanAfterTicks||BACKGROUND_MIN_REPLAN_TICKS));
+    const floor=URGENT_REASONS.has(reason)?URGENT_MIN_REPLAN_TICKS:BACKGROUND_MIN_REPLAN_TICKS;
+    const effectiveReplan=Math.max(floor,requested);
     cache.set(key,{
       response:clone(response),
       lastRealTick,
-      nextDueTick:lastRealTick+replanAfter,
-      messageSig:messageSig(request),
-      factSig:factSig(request),
+      nextDueTick:lastRealTick+effectiveReplan,
       storm:storm(request),
       critical:critical(request),
       lastOutcomeActionId:outcome?.actionId||null,
@@ -103,18 +140,33 @@
     });
   }
 
-  class SmartGateProvider{
+  class EventDrivenSmartGateProvider{
     constructor(){this.id=PROVIDER_ID}
     isConfigured(){return typeof upstream.isConfigured==="function"?upstream.isConfigured():true}
     decide(request,context){
       const key=sessionKey(request);
       const entry=cache.get(key)||null;
       const reason=triggerReason(request,context,entry);
+
       if(!reason&&entry){
-        stats.reuses++;
-        incReason("reuse");
-        return rebindResponse(entry,request);
+        const actionType=String(entry.response?.decision?.action?.type||"");
+        if(REUSABLE_ACTIONS.has(actionType)){
+          stats.reuses++;
+          incReason("reuse");
+          return rebindResponse(entry,request);
+        }
+        stats.holds++;
+        incReason("one-shot-hold");
+        return holdResponse(entry,request);
       }
+
+      // New facts and ordinary messages are intentionally absorbed by Memory.
+      // They are included in the next scheduled/urgent LLM turn rather than
+      // immediately creating more API traffic.
+      const newFacts=request?.memory?.newFactKeys||[];
+      if(newFacts.length)stats.suppressedFacts+=newFacts.length;
+      const messages=request?.observation?.messages||[];
+      if(messages.length&&!urgentMessage(request))stats.suppressedNonUrgentMessages+=messages.length;
 
       if(reason==="bootstrap")stats.bootstrap++;else stats.triggered++;
       stats.realCalls++;
@@ -131,33 +183,28 @@
         version:VERSION,
         cacheSize:cache.size,
         stats:{...stats,byReason:{...stats.byReason}},
-        limits:{
-          baseMaxStaleTicks:BASE_MAX_STALE_TICKS,
-          staleJitterTicks:STALE_JITTER_TICKS,
-          selectedMaxStaleTicks:SELECTED_MAX_STALE_TICKS,
-          criticalRefreshTicks:CRITICAL_REFRESH_TICKS
-        },
+        limits:{backgroundMinReplanTicks:BACKGROUND_MIN_REPLAN_TICKS,urgentMinReplanTicks:URGENT_MIN_REPLAN_TICKS},
         upstream:upstreamStatus
       };
     }
   }
 
-  const gated=new SmartGateProvider();
+  const gated=new EventDrivenSmartGateProvider();
   window.AstraColony.registerProvider(PROVIDER_ID,gated,{
-    label:"Typhoon 2.5 · full-throughput smart gate",
+    label:"Typhoon 2.5 · event-driven reasoning",
     async:true,
-    description:"Reuse safe existing LLM plans only when no replan is needed; every real reasoning trigger enters the adaptive high-concurrency dispatcher immediately"
+    description:"Reason on meaningful events and plan-stage completion; reuse safe actions between events without periodic herd refresh"
   });
 
   window.AstraLifeLLMGate=Object.freeze({
     version:VERSION,
     status:()=>gated.status(),
     clear:()=>{cache.clear();return true},
-    staleTicksForAgent:agentId=>BASE_MAX_STALE_TICKS+((Math.max(1,Number(agentId)||1)-1)%STALE_JITTER_TICKS),
     policy:Object.freeze({
-      realTriggers:["bootstrap","action-failed","significant-outcome","new-message","new-fact","environment-change","entered-critical","critical-refresh","scheduled-replan","selected-refresh","max-stale-refresh","one-shot-action","one-shot-outcome"],
+      realTriggers:["bootstrap","action-failed","plan-stage-complete","urgent-message","environment-change","entered-critical","scheduled-replan"],
+      ignoredImmediateTriggers:["ordinary-message","new-fact","share-success","periodic-max-stale","selected-refresh","critical-refresh"],
       reusableActions:[...REUSABLE_ACTIONS],
-      admission:"no batch/defer gate; real reasoning enters adaptive full-throughput dispatcher immediately"
+      admission:"no batch/defer; event-driven reasoning only; no periodic herd refresh; full-throughput dispatcher remains available when real reasoning is required"
     })
   });
 })();

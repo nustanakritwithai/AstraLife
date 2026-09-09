@@ -243,7 +243,7 @@
     }
     const laneText=s.lanes.map(w=>`${w.name}${w.active}/Q${w.queued}`).join(" ");
     const gate=window.AstraLifeLLMGate?.status?.();
-    const gateText=gate?` · Real ${gate.stats.realCalls} · Reuse ${gate.stats.reuses}`:"";
+    const gateText=gate?` · Real ${gate.stats.realCalls} · Reuse ${gate.stats.reuses} · Hold ${gate.stats.holds||0}`:"";
     statusEl.textContent=`Typhoon ✓${successes} · Run ${s.active}/${s.activeCeiling} · Q${s.queueDepth} · ${laneText} · S${sessionCount}${gateText}`;
     statusEl.classList.toggle("pending",s.active>0||s.queueDepth>0);
     statusEl.classList.remove("error");
