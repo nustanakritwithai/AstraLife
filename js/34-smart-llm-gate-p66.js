@@ -26,16 +26,22 @@
 
   function clone(value){return JSON.parse(JSON.stringify(value))}
 
-  function rebindResponse(response,request){
-    const next=clone(response);
+  function rebindResponse(entry,request){
+    const next=clone(entry.response);
+    const tick=Number(request.simulation.tick||0);
     next.requestId=request.requestId;
     next.agentId=request.agent.id;
-    next.tick=request.simulation.tick;
+    next.tick=tick;
     next.provider=PROVIDER_ID;
+    if(next.decision){
+      const remaining=Math.max(1,Number(entry.nextDueTick||tick+1)-tick);
+      next.decision.replanAfterTicks=remaining;
+    }
     next.diagnostics={
       ...(next.diagnostics||{}),
       decisionSource:"cached-llm-reuse",
-      reusedFromTick:Number(response?.tick??-1)
+      reusedFromTick:Number(entry.response?.tick??-1),
+      originalReplanDueTick:Number(entry.nextDueTick||-1)
     };
     return next;
   }
@@ -67,6 +73,7 @@
     if(nowCritical&&!entry.critical)return "entered-critical";
     if(nowCritical&&elapsed>=CRITICAL_REFRESH_TICKS)return "critical-refresh";
 
+    if(tick>=entry.nextDueTick)return "scheduled-replan";
     if(agent?.mind&&Number(agent.mind.replanAtTick)<=tick)return "scheduled-replan";
     if(selected&&elapsed>=SELECTED_MAX_STALE_TICKS)return "selected-refresh";
     if(elapsed>=MAX_STALE_TICKS)return "max-stale-refresh";
@@ -76,9 +83,12 @@
   function rememberReal(request,context,response,reason){
     const key=sessionKey(request);
     const outcome=context?.agent?.runtime?.lastOutcome;
+    const lastRealTick=Number(request.simulation.tick||0);
+    const replanAfter=Math.max(1,Number(response?.decision?.replanAfterTicks||1));
     cache.set(key,{
       response:clone(response),
-      lastRealTick:Number(request.simulation.tick||0),
+      lastRealTick,
+      nextDueTick:lastRealTick+replanAfter,
       messageSig:messageSig(request),
       factSig:factSig(request),
       storm:storm(request),
@@ -98,7 +108,7 @@
       if(!reason&&entry){
         stats.reuses++;
         incReason("reuse");
-        return rebindResponse(entry.response,request);
+        return rebindResponse(entry,request);
       }
       if(reason==="bootstrap")stats.bootstrap++;else stats.triggered++;
       stats.realCalls++;
