@@ -43,6 +43,7 @@ end
 
 function Planner.ChooseGoal(state, observations, construction, resourceEconomy, config)
     state.preferredResourceType = nil
+    local w6BridgeEnabled = state.agent:GetAttribute("W6BridgeEnabled") == true
 
     -- Immediate danger and critical survival always outrank the environment.
     if #observations.threats > 0 then
@@ -50,7 +51,7 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
     end
 
     if state.needs.thirst <= config.ThirstLow then
-        if state.inventory:Get("Water") > 0 or resourceEconomy.Get(state.folders.state, "Water") > 0 then
+        if state.inventory:Get("Water") > 0 or resourceEconomy.Get(state.folders.state, "Water") > 0 or w6BridgeEnabled then
             return "Drink", state.needs.thirst <= config.ThirstCritical and 125 or 112
         end
         if state.role == config.Roles.Gatherer then
@@ -61,7 +62,7 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
     end
 
     if state.needs.hunger <= config.HungerLow then
-        if state.inventory:Get("Food") > 0 or resourceEconomy.Get(state.folders.state, "Food") > 0 then
+        if state.inventory:Get("Food") > 0 or resourceEconomy.Get(state.folders.state, "Food") > 0 or w6BridgeEnabled then
             return "Eat", state.needs.hunger <= config.HungerCritical and 120 or 106
         end
         if state.role == config.Roles.Gatherer then
