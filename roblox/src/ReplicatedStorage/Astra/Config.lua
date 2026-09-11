@@ -1,6 +1,6 @@
 local Config = {}
 
-Config.RuntimeVersion = "0.6.0-p6"
+Config.RuntimeVersion = "0.7.0-p7"
 
 Config.TickSeconds = 2
 Config.ThinkVisibleSeconds = 2
@@ -95,6 +95,28 @@ Config.RoleExperienceScout = 0.55
 Config.RoleExperienceGatherer = 0.85
 Config.RoleExperienceBuilder = 1.0
 Config.RoleExperienceSurvival = 0.35
+
+-- P7 outcome-based skill learning.
+Config.P7OutcomeLearningEnabled = true
+Config.P7SkillCap = 100
+Config.P7XPToSkillScale = 3.0
+Config.P7AntiGrindWindowTicks = 6
+Config.P7AntiGrindRepeatPenalty = 0.55
+Config.P7MinimumRewardMultiplier = 0.2
+Config.P7ScoutObservationXP = 1.0
+Config.P7GatherCollectXP = 1.6
+Config.P7GatherDepositXP = 1.2
+Config.P7BuilderProgressXP = 1.4
+Config.P7BuilderCompleteXP = 4.0
+Config.P7SurvivalRecoveryXP = 0.9
+Config.P7FailureLearningXP = 0.35
+Config.P7ScoutRangePerSkill = 0.004
+Config.P7GatherRangePerSkill = 0.0025
+Config.P7BuildSpeedPerSkill = 0.01
+Config.P7SurvivalDecayReductionPerSkill = 0.003
+Config.P7MaxResourceRangeMultiplier = 1.45
+Config.P7MaxBuildSpeedMultiplier = 1.75
+Config.P7MinSurvivalDecayMultiplier = 0.70
 
 Config.ResourceRespawnSeconds = 14
 Config.DemoResourceCount = 8
