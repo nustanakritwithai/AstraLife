@@ -1,0 +1,21 @@
+name: Build AstraLife SurvivalCrafting S7 Stations
+on:
+  push:
+    branches: [feat/roblox-survivalcrafting-s7-stations]
+  pull_request:
+    branches: [feat/roblox-survivalcrafting-s0-core]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: CompeyDev/setup-rokit@v0.1.2
+        with: {version: "v1.1.0"}
+      - run: rojo build roblox/default.project.json -o AstraLife-SurvivalCrafting-S7.rbxl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-SurvivalCrafting-S7-Place
+          path: AstraLife-SurvivalCrafting-S7.rbxl
+          if-no-files-found: error
+          retention-days: 14
