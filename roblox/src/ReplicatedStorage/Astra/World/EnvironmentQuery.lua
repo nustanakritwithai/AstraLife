@@ -29,18 +29,26 @@ function EnvironmentQuery:GetAffordancesAt(position)
     end
 
     local safe = cell.danger <= 0.25
+    local slope = cell.slope or 0
     return {
         inWorld = true,
         canWalk = cell.walkable == true,
-        canDrink = cell.water >= 0.2,
+        canDrink = cell.water >= 0.2 or (cell.waterPotential or 0) >= 0.85,
         canEat = cell.food >= 1,
-        canRest = cell.walkable == true and safe,
-        canBuild = cell.walkable == true and safe and cell.water < 0.15,
+        canRest = cell.walkable == true and safe and slope < 0.65,
+        canBuild = cell.walkable == true and safe and cell.water < 0.15 and slope < 0.35,
         safe = safe,
         danger = cell.danger,
         biome = cell.biome,
+        terrainType = cell.terrainType,
+        terrainTags = cell.terrainTags,
+        elevation = cell.elevation,
+        height = cell.height,
+        slope = slope,
         moisture = cell.moisture,
         temperature = cell.temperature,
+        fertility = cell.fertility,
+        waterPotential = cell.waterPotential,
     }
 end
 
