@@ -91,10 +91,11 @@ Config.RoleInertiaBonus = 10
 Config.RoleInitialHintBonus = 30
 Config.RoleSkillWeight = 1.15
 Config.RoleTraitWeight = 0.75
-Config.RoleExperienceScout = 0.55
-Config.RoleExperienceGatherer = 0.85
-Config.RoleExperienceBuilder = 1.0
-Config.RoleExperienceSurvival = 0.35
+-- Legacy tick-based XP is disabled under P7. SkillLearning is authoritative.
+Config.RoleExperienceScout = 0
+Config.RoleExperienceGatherer = 0
+Config.RoleExperienceBuilder = 0
+Config.RoleExperienceSurvival = 0
 
 -- P7 outcome-based skill learning.
 Config.P7OutcomeLearningEnabled = true
