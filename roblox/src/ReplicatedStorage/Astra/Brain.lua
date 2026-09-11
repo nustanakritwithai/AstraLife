@@ -12,6 +12,7 @@ local ResourceEconomy = require(script.Parent.ResourceEconomy)
 local Storage = require(script.Parent.Storage)
 local Construction = require(script.Parent.Construction)
 local Planner = require(script.Parent.Planner)
+local Needs = require(script.Parent.Needs)
 
 local Brain = {}
 local runningAgents = setmetatable({}, { __mode = "k" })
@@ -21,7 +22,6 @@ local function inferRole(agent)
     if explicit and explicit ~= "" then
         return explicit
     end
-
     local name = string.lower(agent.Name)
     if string.find(name, "scout", 1, true) or string.find(agent.Name, "นักสำรวจ", 1, true) then
         return Config.Roles.Scout
@@ -35,9 +35,7 @@ end
 
 local function createThoughtBubble(head)
     local old = head:FindFirstChild("AstraThought")
-    if old then
-        old:Destroy()
-    end
+    if old then old:Destroy() end
 
     local gui = Instance.new("BillboardGui")
     gui.Name = "AstraThought"
@@ -76,9 +74,7 @@ local function debug(agent, key, value)
 end
 
 local function think(state, text)
-    if state.lastThought == text then
-        return
-    end
+    if state.lastThought == text then return end
     state.lastThought = text
     state.thoughtLabel.Text = "💭 " .. text
     debug(state.agent, "LastThought", text)
@@ -157,12 +153,18 @@ local function deterministicExplorePosition(state)
     return state.homePosition + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
 end
 
-local function invalidateReport(state, reason, broadcast)
-    local report = state.resourceReport
-    if not report then
-        return
+local function removeReport(state, report)
+    if not report then return end
+    if state.resourceReports[report.resourceType] == report then
+        state.resourceReports[report.resourceType] = nil
     end
+    if state.resourceReport == report then
+        state.resourceReport = nil
+    end
+end
 
+local function invalidateReport(state, report, reason, broadcast)
+    if not report then return end
     state.belief:Invalidate("resource:" .. report.resourceId, state.tick, reason)
     SharedKnowledge.InvalidateByResource(report.resourceId, state.tick, state.agent.Name)
 
@@ -177,7 +179,7 @@ local function invalidateReport(state, reason, broadcast)
         }, Config)
     end
 
-    state.resourceReport = nil
+    removeReport(state, report)
     debug(state.agent, "CurrentKnowledgeTarget", "None")
     debug(state.agent, "KnowledgeTargetConfidence", 0)
 end
@@ -185,16 +187,11 @@ end
 local function processMessages(state)
     local messages, expired = Communication.ReceiveAll(state.agent, state.tick)
     debug(state.agent, "CommunicationInboxSize", #messages)
-
-    if expired > 0 then
-        state.expiredMessages += expired
-        debug(state.agent, "ExpiredBeliefs", state.expiredMessages)
-    end
+    state.expiredMessages += expired or 0
 
     for _, message in ipairs(messages) do
         if state.processedMessages[message.messageId] then
             state.duplicateMessages += 1
-            debug(state.agent, "DuplicateMessagesDropped", state.duplicateMessages)
             continue
         end
         state.processedMessages[message.messageId] = true
@@ -204,9 +201,8 @@ local function processMessages(state)
             local payload = message.payload
             if not state.processedObservations[payload.observationId] then
                 state.processedObservations[payload.observationId] = true
-
                 local expiresTick = state.tick + Config.SharedKnowledgeTTL
-                state.resourceReport = {
+                local report = {
                     observationId = payload.observationId,
                     resourceId = payload.resourceId,
                     resourceType = payload.resourceType,
@@ -216,6 +212,8 @@ local function processMessages(state)
                     receivedTick = state.tick,
                     expiresTick = expiresTick,
                 }
+                state.resourceReport = report
+                state.resourceReports[payload.resourceType] = report
 
                 remember(state, "resource_report_received", {
                     sourceType = "communication",
@@ -238,30 +236,21 @@ local function processMessages(state)
                 think(state, string.format("%s รายงาน %s → เชื่อ %d%%", message.from, payload.resourceType, math.floor(Config.ReportedResourceConfidence * 100)))
             else
                 state.duplicateMessages += 1
-                debug(state.agent, "DuplicateMessagesDropped", state.duplicateMessages)
             end
         elseif message.type == "resource_missing" then
             local payload = message.payload
-            local belief = state.belief:Get("resource:" .. tostring(payload.resourceId), state.tick)
-            if belief then
-                state.belief:Invalidate("resource:" .. payload.resourceId, state.tick, "peer_missing")
-            end
-            if state.resourceReport and state.resourceReport.resourceId == payload.resourceId then
-                state.resourceReport = nil
+            state.belief:Invalidate("resource:" .. tostring(payload.resourceId), state.tick, "peer_missing")
+            for _, report in pairs(state.resourceReports) do
+                if report.resourceId == payload.resourceId then
+                    removeReport(state, report)
+                    break
+                end
             end
         end
     end
-end
 
-local function updateNeeds(state)
-    state.needs.energy = math.max(0, state.needs.energy - Config.EnergyDecayPerTick)
-    state.needs.social = math.max(0, state.needs.social - 0.6)
-    if state.humanoid.Health < state.humanoid.MaxHealth * 0.45 then
-        state.needs.safety = math.max(0, state.needs.safety - 8)
-    end
-    debug(state.agent, "Energy", math.floor(state.needs.energy))
-    debug(state.agent, "Safety", math.floor(state.needs.safety))
-    debug(state.agent, "Social", math.floor(state.needs.social))
+    debug(state.agent, "DuplicateMessagesDropped", state.duplicateMessages)
+    debug(state.agent, "ExpiredBeliefs", state.expiredMessages)
 end
 
 local function updateBeliefsFromObservation(state, observations)
@@ -282,58 +271,58 @@ local function updateBeliefsFromObservation(state, observations)
 
         debug(state.agent, "LastObservationId", observation.id)
 
-        if state.resourceReport and state.resourceReport.resourceId == observation.resourceId then
-            state.folders.state:SetAttribute("P1_Verified100", true)
-            debug(state.agent, "KnowledgeTargetConfidence", 100)
-            Communication.BroadcastStatus(state.agent, state.folders.agents, state.tick, "resource_verified", {
-                observationId = observation.id,
-                resourceId = observation.resourceId,
-                resourceType = observation.subtype,
-                position = observation.position,
-                confidence = 1.0,
-                provenance = "direct",
-            }, Config)
-            state.resourceReport = nil
-            think(state, observation.subtype .. " ยืนยันด้วยตาตัวเอง → Confidence 100%")
+        for _, report in pairs(state.resourceReports) do
+            if report.resourceId == observation.resourceId then
+                state.folders.state:SetAttribute("P1_Verified100", true)
+                debug(state.agent, "KnowledgeTargetConfidence", 100)
+                Communication.BroadcastStatus(state.agent, state.folders.agents, state.tick, "resource_verified", {
+                    observationId = observation.id,
+                    resourceId = observation.resourceId,
+                    resourceType = observation.subtype,
+                    position = observation.position,
+                    confidence = 1.0,
+                    provenance = "direct",
+                }, Config)
+                removeReport(state, report)
+                think(state, observation.subtype .. " ยืนยันด้วยตาตัวเอง → Confidence 100%")
+                break
+            end
         end
     end
 
-    if #observations.threats > 0 then
-        setBelief(state, "threat_nearby", true, 0.99, state.agent.Name, "direct", state.tick + 4)
-        state.needs.safety = math.max(0, state.needs.safety - 15)
-    else
-        setBelief(state, "threat_nearby", false, 0.8, state.agent.Name, "direct", state.tick + 4)
-        state.needs.safety = math.min(100, state.needs.safety + 3)
-    end
+    setBelief(state, "threat_nearby", #observations.threats > 0, #observations.threats > 0 and 0.99 or 0.8, state.agent.Name, "direct", state.tick + 4)
 end
 
 local function scoutReport(state, observations)
-    if state.role ~= Config.Roles.Scout or #observations.resources == 0 then
-        return
+    if state.role ~= Config.Roles.Scout then return end
+
+    local sentAny = false
+    local reported = 0
+    for _, observation in ipairs(observations.resources) do
+        if reported >= 3 then break end
+        local lastTick = state.lastReportedResource[observation.resourceId] or -999
+        if state.tick - lastTick >= 3 then
+            SharedKnowledge.Publish(observation, state.tick, Config.SharedKnowledgeTTL)
+            local sent = Communication.BroadcastResourceObservation(state.agent, state.folders.agents, state.tick, observation, Config)
+            if sent > 0 then
+                state.lastReportedResource[observation.resourceId] = state.tick
+                reported += 1
+                sentAny = true
+                remember(state, "resource_report_sent", {
+                    observationId = observation.id,
+                    resourceId = observation.resourceId,
+                    resourceType = observation.subtype,
+                    position = observation.position,
+                    recipients = sent,
+                }, 0.8)
+            end
+        end
     end
 
-    local observation = observations.resources[1]
-    local lastTick = state.lastReportedResource[observation.resourceId] or -999
-    if state.tick - lastTick < 3 then
-        return
-    end
-
-    SharedKnowledge.Publish(observation, state.tick, Config.SharedKnowledgeTTL)
-    local sent = Communication.BroadcastResourceObservation(state.agent, state.folders.agents, state.tick, observation, Config)
-
-    if sent > 0 then
-        state.lastReportedResource[observation.resourceId] = state.tick
-        remember(state, "resource_report_sent", {
-            observationId = observation.id,
-            resourceId = observation.resourceId,
-            resourceType = observation.subtype,
-            position = observation.position,
-            recipients = sent,
-        }, 0.8)
+    if sentAny then
         state.folders.state:SetAttribute("P1_ScoutObserved", true)
         state.folders.state:SetAttribute("P1_ScoutSent", true)
-        debug(state.agent, "LastMessageSent", observation.id)
-        think(state, "พบ " .. observation.subtype .. " → ส่งข่าวให้ Colony")
+        think(state, "สำรวจพบ Resource → ส่งข่าวให้ Colony")
     end
 end
 
@@ -344,28 +333,19 @@ local function collectResource(state, observation)
     end
 
     local resource = observation and observation.instance
-    if not resource or not resource.Parent or resource:GetAttribute("Active") == false then
-        return false
-    end
-    if observation.distance > Config.CollectDistance then
-        return false
-    end
-    if state.inventory:IsFull() then
-        return false
-    end
+    if not resource or not resource.Parent or resource:GetAttribute("Active") == false then return false end
+    if observation.distance > Config.CollectDistance or state.inventory:IsFull() then return false end
 
     local resourceType = resource:GetAttribute("ResourceType") or observation.subtype or "Wood"
     local amount = resource:GetAttribute("Amount") or 1
     local accepted = state.inventory:Add(resourceType, amount)
-    if accepted <= 0 then
-        return false
-    end
+    if accepted <= 0 then return false end
 
     resource:SetAttribute("Active", false)
     resource.Transparency = 1
     resource.CanQuery = false
-
     updateInventoryDebug(state)
+
     state.folders.state:SetAttribute("P1_Collected", true)
     state.folders.state:SetAttribute("P2_CarryObserved", true)
     state.folders.state:SetAttribute("P2_LastCarriedType", resourceType)
@@ -389,10 +369,6 @@ local function collectResource(state, observation)
         provenance = "self_action",
     }, Config)
 
-    if state.resourceReport and state.resourceReport.resourceId == resource.Name then
-        state.resourceReport = nil
-    end
-
     think(state, string.format("เก็บ %s เข้ากระเป๋า %d/%d", resourceType, state.inventory:GetTotal(), state.inventory.capacity))
 
     task.delay(Config.ResourceRespawnSeconds, function()
@@ -402,13 +378,70 @@ local function collectResource(state, observation)
             resource:SetAttribute("Active", true)
         end
     end)
-
     return true
 end
 
-local function depositResources(state)
-    if state.role ~= Config.Roles.Gatherer or state.inventory:GetTotal() <= 0 then
+local function selectGatherTarget(state, observations)
+    if state.preferredResourceType then
+        for _, observation in ipairs(observations.resources) do
+            if observation.subtype == state.preferredResourceType then
+                return observation
+            end
+        end
+    end
+    return observations.resources[1]
+end
+
+local function deliverMaterials(state)
+    if state.role ~= Config.Roles.Gatherer then return false end
+    local active = Construction.GetActive()
+    if not active then return false end
+
+    local hasDelivery = false
+    for _, resourceType in ipairs(ResourceEconomy.Types()) do
+        if state.inventory:Get(resourceType) > 0 and ResourceEconomy.IsRequestedForBuild(state.folders.state, resourceType) then
+            hasDelivery = true
+            break
+        end
+    end
+    if not hasDelivery then return false end
+
+    local distance = (active.position - state.root.Position).Magnitude
+    if distance > Config.BuildSiteDeliveryDistance then
+        think(state, "ขนวัสดุไป Build Site")
+        pathMove(state, active.position)
         return false
+    end
+
+    local delivered = {}
+    for _, resourceType in ipairs(ResourceEconomy.Types()) do
+        local carried = state.inventory:Get(resourceType)
+        local missing = ResourceEconomy.GetBuildMissing(state.folders.state, resourceType)
+        if carried > 0 and missing > 0 then
+            local amount = math.min(carried, missing)
+            local accepted = ResourceEconomy.DeliverToBuildSite(state.folders.state, resourceType, amount)
+            if accepted > 0 then
+                state.inventory:Remove(resourceType, accepted)
+                table.insert(delivered, resourceType .. "+" .. tostring(accepted))
+            end
+        end
+    end
+
+    updateInventoryDebug(state)
+    if #delivered > 0 then
+        state.folders.state:SetAttribute("P3_PhysicalDelivery", true)
+        remember(state, "build_material_delivered", { items = delivered, site = active.blueprint.id }, 0.9)
+        think(state, "ส่งวัสดุถึงไซต์: " .. table.concat(delivered, " "))
+        return true
+    end
+    return false
+end
+
+local function depositResources(state)
+    if state.role ~= Config.Roles.Gatherer or state.inventory:GetTotal() <= 0 then return false end
+
+    if deliverMaterials(state) then
+        return true
     end
 
     local depositPosition = Storage.GetDepositPosition(state.storage)
@@ -419,17 +452,13 @@ local function depositResources(state)
         return false
     end
 
-    local snapshot = state.inventory:Drain()
+    local snapshot = state.inventory:Snapshot()
     local depositedTotal = 0
     local summary = {}
-
     for resourceType, amount in pairs(snapshot) do
-        local accepted = ResourceEconomy.Deposit(state.folders.state, resourceType, amount)
-        local remainder = amount - accepted
-        if remainder > 0 then
-            state.inventory:Add(resourceType, remainder)
-        end
+        local accepted = ResourceEconomy.DepositToStorage(state.folders.state, resourceType, amount)
         if accepted > 0 then
+            state.inventory:Remove(resourceType, accepted)
             depositedTotal += accepted
             table.insert(summary, resourceType .. "+" .. tostring(accepted))
             state.folders.state:SetAttribute("P2_Deposited_" .. resourceType, true)
@@ -437,27 +466,26 @@ local function depositResources(state)
     end
 
     updateInventoryDebug(state)
-
     if depositedTotal > 0 then
         table.sort(summary)
         state.folders.state:SetAttribute("P2_DepositObserved", true)
         state.folders.state:SetAttribute("P2_LastDeposit", table.concat(summary, ","))
-        remember(state, "resource_deposited", {
-            sourceType = "self_action",
-            items = snapshot,
-            deposited = depositedTotal,
-        }, 0.9)
+        remember(state, "resource_deposited", { sourceType = "self_action", items = summary }, 0.9)
         think(state, "ฝากเข้าคลัง: " .. table.concat(summary, " "))
         return true
     end
-
     think(state, "คลังเต็ม → ยังถือของไว้")
     return false
 end
 
+local function executeExplore(state)
+    think(state, state.preferredResourceType and ("ค้นหา " .. state.preferredResourceType) or "สำรวจพื้นที่")
+    directMove(state, deterministicExplorePosition(state), Config.WalkSpeed)
+end
+
 local function executeGather(state, observations)
-    local target = observations.resources[1]
-    if target then
+    local target = selectGatherTarget(state, observations)
+    if target and (not state.preferredResourceType or target.subtype == state.preferredResourceType) then
         if target.distance <= Config.CollectDistance then
             collectResource(state, target)
         else
@@ -467,16 +495,14 @@ local function executeGather(state, observations)
         return
     end
 
-    local report = state.resourceReport
+    local report = state.preferredResourceType and state.resourceReports[state.preferredResourceType] or state.resourceReport
     if report then
         if state.tick > report.expiresTick then
             state.expiredMessages += 1
-            debug(state.agent, "ExpiredBeliefs", state.expiredMessages)
-            invalidateReport(state, "expired", false)
+            invalidateReport(state, report, "expired", false)
             think(state, "ข่าว Resource หมดอายุ → ยกเลิกเป้าหมาย")
             return
         end
-
         local distance = (report.position - state.root.Position).Magnitude
         if distance > Config.ArrivalDistance then
             state.folders.state:SetAttribute("P1_RemoteGoal", true)
@@ -484,46 +510,137 @@ local function executeGather(state, observations)
             pathMove(state, report.position)
             return
         end
-
-        -- Critical P1 rule: at reported position with no direct Perception result,
-        -- treat the report as disproven. Do not inspect Workspace for world truth.
         state.folders.state:SetAttribute("P1_MissingRecovered", true)
         think(state, "ถึงพิกัดแล้วไม่พบ Resource → ยกเลิก Belief")
-        invalidateReport(state, "not_found_on_arrival", true)
+        invalidateReport(state, report, "not_found_on_arrival", true)
         return
     end
 
     executeExplore(state)
 end
 
-function executeExplore(state)
-    think(state, "สำรวจพื้นที่")
-    directMove(state, deterministicExplorePosition(state), Config.WalkSpeed)
-end
-
 local function executeFlee(state, observations)
     local threat = observations.threats[1]
-    if not threat then
-        return
-    end
+    if not threat then return end
     local away = state.root.Position - threat.position
-    if away.Magnitude < 0.1 then
-        away = Vector3.new(1, 0, 0)
-    end
-    think(state, "พบภัยคุกคาม → ถอย")
+    if away.Magnitude < 0.1 then away = Vector3.new(1, 0, 0) end
+    state.folders.state:SetAttribute("P4_SafetyResponse", true)
+    think(state, "พบภัยคุกคาม → หนี")
     directMove(state, state.root.Position + away.Unit * 24, Config.RunSpeed)
 end
 
+local function storagePosition(state)
+    return Storage.GetDepositPosition(state.storage)
+end
+
+local function executeEat(state)
+    if state.inventory:Get("Food") > 0 then
+        state.inventory:Remove("Food", 1)
+        Needs.Eat(state.needs, Config)
+        updateInventoryDebug(state)
+        state.folders.state:SetAttribute("P4_EatObserved", true)
+        remember(state, "ate_food", { source = "carried" }, 0.7)
+        think(state, "กิน Food จากกระเป๋า")
+        return
+    end
+
+    if ResourceEconomy.Get(state.folders.state, "Food") <= 0 then
+        think(state, "หิว แต่คลังไม่มี Food")
+        pathMove(state, storagePosition(state))
+        return
+    end
+
+    if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then
+        think(state, "หิว → กลับคลังหาอาหาร")
+        pathMove(state, storagePosition(state))
+        return
+    end
+
+    if ResourceEconomy.Consume(state.folders.state, "Food", 1) > 0 then
+        Needs.Eat(state.needs, Config)
+        state.folders.state:SetAttribute("P4_EatObserved", true)
+        remember(state, "ate_food", { source = "storage" }, 0.8)
+        think(state, "กิน Food จากคลัง → Hunger ฟื้น")
+    end
+end
+
+local function executeDrink(state)
+    if state.inventory:Get("Water") > 0 then
+        state.inventory:Remove("Water", 1)
+        Needs.Drink(state.needs, Config)
+        updateInventoryDebug(state)
+        state.folders.state:SetAttribute("P4_DrinkObserved", true)
+        remember(state, "drank_water", { source = "carried" }, 0.7)
+        think(state, "ดื่ม Water จากกระเป๋า")
+        return
+    end
+
+    if ResourceEconomy.Get(state.folders.state, "Water") <= 0 then
+        think(state, "กระหาย แต่คลังไม่มี Water")
+        pathMove(state, storagePosition(state))
+        return
+    end
+
+    if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then
+        think(state, "กระหาย → กลับคลังหาน้ำ")
+        pathMove(state, storagePosition(state))
+        return
+    end
+
+    if ResourceEconomy.Consume(state.folders.state, "Water", 1) > 0 then
+        Needs.Drink(state.needs, Config)
+        state.folders.state:SetAttribute("P4_DrinkObserved", true)
+        remember(state, "drank_water", { source = "storage" }, 0.8)
+        think(state, "ดื่ม Water จากคลัง → Thirst ฟื้น")
+    end
+end
+
 local function executeRest(state)
+    local shelter = state.folders.structures:FindFirstChild("Shelter")
+    local restPosition = shelter and shelter.Position or storagePosition(state)
+    local inShelter = shelter ~= nil
+
+    if (restPosition - state.root.Position).Magnitude > Config.SurvivalUseDistance then
+        think(state, inShelter and "เหนื่อย → กลับ Shelter" or "เหนื่อย → กลับฐานพัก")
+        pathMove(state, restPosition)
+        return
+    end
+
     state.humanoid:MoveTo(state.root.Position)
-    state.needs.energy = math.min(100, state.needs.energy + Config.EnergyRestGain)
-    think(state, "พักฟื้นพลังงาน")
+    Needs.Rest(state.needs, Config, inShelter)
+    state.folders.state:SetAttribute("P4_RestObserved", true)
+    state.folders.state:SetAttribute("P4_RestedInShelter", inShelter)
+    think(state, inShelter and "พักใน Shelter → Energy ฟื้นเร็ว" or "พักที่ฐาน → Energy ฟื้น")
+end
+
+local function executeSocialize(state, observations)
+    local nearest = observations.agents[1]
+    if nearest then
+        if nearest.distance > Config.SocialDistance then
+            think(state, "ต้องการสังคม → เข้าใกล้ Agent")
+            pathMove(state, nearest.position)
+            return
+        end
+        Needs.Socialize(state.needs, Config)
+        state.folders.state:SetAttribute("P4_SocialObserved", true)
+        remember(state, "socialized", { with = nearest.instance.Name }, 0.6)
+        think(state, "พูดคุยกับ " .. nearest.instance.Name .. " → Social ฟื้น")
+        return
+    end
+    pathMove(state, storagePosition(state))
+end
+
+local function executeWaitFor(state, resourceType)
+    think(state, "รอ " .. resourceType .. " ที่คลัง")
+    if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then
+        pathMove(state, storagePosition(state))
+    else
+        state.humanoid:MoveTo(state.root.Position)
+    end
 end
 
 local function executeBuild(state)
-    if state.role ~= Config.Roles.Builder then
-        return
-    end
+    if state.role ~= Config.Roles.Builder then return end
 
     local active = Construction.GetActive()
     if not active then
@@ -532,18 +649,9 @@ local function executeBuild(state)
             think(state, "สิ่งปลูกสร้างหลักครบแล้ว")
             return
         end
-
-        if not ResourceEconomy.CanAfford(state.folders.state, blueprint.recipe) then
-            think(state, "รอวัตถุดิบสำหรับ " .. blueprint.displayName)
-            return
-        end
-
         active = Construction.TryStart(state.agent, state.folders, Config, state.tick)
     end
-
-    if not active then
-        return
-    end
+    if not active then return end
 
     local distance = (active.position - state.root.Position).Magnitude
     if distance > Config.ArrivalDistance + 2 then
@@ -556,12 +664,10 @@ local function executeBuild(state)
     if ok and status == "progress" then
         think(state, string.format("สร้าง %s → %d%%", active.blueprint.displayName, detail))
     elseif ok and status == "completed" then
-        remember(state, "structure_built", {
-            sourceType = "self_action",
-            blueprint = active.blueprint.id,
-            position = active.position,
-        }, 1.0)
+        remember(state, "structure_built", { sourceType = "self_action", blueprint = active.blueprint.id, position = active.position }, 1.0)
         think(state, "สร้าง " .. active.blueprint.displayName .. " สำเร็จ")
+    elseif status == "awaiting_materials" then
+        think(state, "รอวัสดุที่ Build Site: " .. tostring(detail))
     elseif status == "too_far" and typeof(detail) == "Vector3" then
         pathMove(state, detail)
     end
@@ -570,17 +676,12 @@ end
 local function updateStuck(state)
     local moved = (state.root.Position - state.lastPosition).Magnitude
     if state.targetPosition and (state.targetPosition - state.root.Position).Magnitude > Config.ArrivalDistance then
-        if moved <= Config.StuckDistanceEpsilon then
-            state.stuckTicks += 1
-        else
-            state.stuckTicks = 0
-        end
+        state.stuckTicks = moved <= Config.StuckDistanceEpsilon and (state.stuckTicks + 1) or 0
     else
         state.stuckTicks = 0
     end
     state.lastPosition = state.root.Position
     debug(state.agent, "StuckTicks", state.stuckTicks)
-
     if state.stuckTicks >= Config.StuckTicksBeforePath and state.targetPosition then
         think(state, "เส้นทางติด → คำนวณใหม่")
         pathMove(state, state.targetPosition)
@@ -590,41 +691,48 @@ end
 
 local function executeGoal(state, goal, observations)
     debug(state.agent, "Goal", goal)
+    state.folders.state:SetAttribute("P4_LastSurvivalGoal", goal)
 
     if goal == "Flee" then
         executeFlee(state, observations)
+    elseif goal == "Eat" then
+        state.folders.state:SetAttribute("P4_SurvivalGoalObserved", true)
+        executeEat(state)
+    elseif goal == "Drink" then
+        state.folders.state:SetAttribute("P4_SurvivalGoalObserved", true)
+        executeDrink(state)
     elseif goal == "Rest" then
+        state.folders.state:SetAttribute("P4_SurvivalGoalObserved", true)
         executeRest(state)
+    elseif goal == "Socialize" then
+        state.folders.state:SetAttribute("P4_SurvivalGoalObserved", true)
+        executeSocialize(state, observations)
+    elseif goal == "WaitForFood" then
+        executeWaitFor(state, "Food")
+    elseif goal == "WaitForWater" then
+        executeWaitFor(state, "Water")
     elseif goal == "GatherResource" then
         executeGather(state, observations)
+    elseif goal == "DeliverMaterials" then
+        if not deliverMaterials(state) then depositResources(state) end
     elseif goal == "DepositResources" then
         depositResources(state)
     elseif goal == "BuildStructure" then
         executeBuild(state)
     elseif goal == "Communicate" then
-        if state.role == Config.Roles.Scout then
-            scoutReport(state, observations)
-        elseif state.role == Config.Roles.Builder then
-            think(state, "รอวัตถุดิบจาก Gatherer")
-        else
-            executeExplore(state)
-        end
+        if state.role == Config.Roles.Scout then scoutReport(state, observations) else executeExplore(state) end
     else
         executeExplore(state)
     end
 end
 
 function Brain.Start(agent)
-    if runningAgents[agent] then
-        return runningAgents[agent]
-    end
+    if runningAgents[agent] then return runningAgents[agent] end
 
     local humanoid = agent:FindFirstChildOfClass("Humanoid")
     local root = agent:FindFirstChild("HumanoidRootPart")
     local head = agent:FindFirstChild("Head")
-    if not humanoid or not root or not head then
-        return nil
-    end
+    if not humanoid or not root or not head then return nil end
 
     local folders = WorldState.Ensure(Config)
     ResourceEconomy.Ensure(folders.state, Config.StorageCapacity)
@@ -635,15 +743,9 @@ function Brain.Start(agent)
     humanoid.WalkSpeed = Config.WalkSpeed
 
     for _, obj in ipairs(agent:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            obj.Anchored = false
-        end
+        if obj:IsA("BasePart") then obj.Anchored = false end
     end
-
-    local canSetOwner = root:CanSetNetworkOwnership()
-    if canSetOwner then
-        root:SetNetworkOwner(nil)
-    end
+    if root:CanSetNetworkOwnership() then root:SetNetworkOwner(nil) end
 
     local state = {
         agent = agent,
@@ -665,31 +767,29 @@ function Brain.Start(agent)
         localDecisionTick = 0,
         lastThought = "",
         resourceReport = nil,
+        resourceReports = {},
+        preferredResourceType = nil,
         processedMessages = {},
         processedObservations = {},
         duplicateMessages = 0,
         expiredMessages = 0,
         lastReportedResource = {},
-        needs = {
-            energy = Config.EnergyStart,
-            safety = Config.SafetyStart,
-            social = Config.SocialStart,
-        },
+        needs = Needs.Create(Config),
     }
 
     runningAgents[agent] = state
-
     debug(agent, "State", "Online")
     debug(agent, "RuntimeVersion", Config.RuntimeVersion)
     debug(agent, "DuplicateMessagesDropped", 0)
     debug(agent, "ExpiredBeliefs", 0)
     updateInventoryDebug(state)
+    Needs.SyncAgent(agent, state.needs, Config)
 
     if role ~= Config.Roles.Gatherer then
         folders.state:SetAttribute("P1_RoleGuards", true)
     end
 
-    think(state, "AstraBrain P2 online")
+    think(state, "AstraBrain P4 Survival online")
 
     humanoid.Died:Connect(function()
         runningAgents[agent] = nil
@@ -698,36 +798,38 @@ function Brain.Start(agent)
     task.spawn(function()
         while runningAgents[agent] == state and agent.Parent and humanoid.Health > 0 do
             task.wait(Config.TickSeconds)
-
             state.tick = WorldState.GetTick(Config)
             state.localDecisionTick += 1
             debug(agent, "Tick", state.tick)
             debug(agent, "LocalDecisionTick", state.localDecisionTick)
 
-            if state.resourceReport and state.tick > state.resourceReport.expiresTick then
-                state.expiredMessages += 1
-                debug(agent, "ExpiredBeliefs", state.expiredMessages)
-                invalidateReport(state, "expired", false)
+            for _, report in pairs(state.resourceReports) do
+                if state.tick > report.expiresTick then
+                    state.expiredMessages += 1
+                    invalidateReport(state, report, "expired", false)
+                end
             end
 
             processMessages(state)
-            updateNeeds(state)
-
             local observations = Perception.Observe(agent, folders, Config, state.tick)
             updateBeliefsFromObservation(state, observations)
+
+            local critical = Needs.Tick(state.needs, humanoid, #observations.threats > 0, Config)
+            Needs.SyncAgent(agent, state.needs, Config)
+            folders.state:SetAttribute("P4_NeedsDecayed", true)
+            if critical then folders.state:SetAttribute("P4_CriticalDamageObserved", true) end
+
             state.expiredMessages += state.belief:Decay(state.tick)
             debug(agent, "ExpiredBeliefs", state.expiredMessages)
 
-            if role == Config.Roles.Scout then
-                scoutReport(state, observations)
-            end
-
+            if role == Config.Roles.Scout then scoutReport(state, observations) end
             debug(agent, "KnownResourceCount", SharedKnowledge.ActiveCount(state.tick))
 
             local goal, score = Planner.ChooseGoal(state, observations, Construction, ResourceEconomy, Config)
             debug(agent, "GoalScore", score)
             debug(agent, "Plan", goal)
             executeGoal(state, goal, observations)
+            Needs.SyncAgent(agent, state.needs, Config)
             updateStuck(state)
         end
     end)
