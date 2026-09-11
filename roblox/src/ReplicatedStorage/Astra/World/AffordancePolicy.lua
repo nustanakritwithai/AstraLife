@@ -59,6 +59,13 @@ local function baseFacts(cell, options)
     }
 end
 
+local function requirePhysicalAccess(facts, config)
+    if not facts.terrainWalkable then return false, "terrain_blocked" end
+    if facts.hazardBlocked then return false, "hazard_blocked" end
+    if facts.slope >= config.maxWalkSlope then return false, "slope_too_steep" end
+    return true, "ok"
+end
+
 function AffordancePolicy.Evaluate(cell, action, options)
     if not cell then
         return false, "outside_world", { inWorld = false }
@@ -69,16 +76,14 @@ function AffordancePolicy.Evaluate(cell, action, options)
     facts.action = action
 
     if action == "Walk" then
-        if not facts.terrainWalkable then return false, "terrain_blocked", facts end
-        if facts.hazardBlocked then return false, "hazard_blocked", facts end
-        if facts.slope >= config.maxWalkSlope then return false, "slope_too_steep", facts end
-        return true, "ok", facts
+        local allowed, reason = requirePhysicalAccess(facts, config)
+        return allowed, reason, facts
     end
 
     if action == "Drink" then
-        if facts.hazardBlocked or facts.danger > config.maxDrinkDanger then
-            return false, "unsafe_water", facts
-        end
+        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if not accessible then return false, accessReason, facts end
+        if facts.danger > config.maxDrinkDanger then return false, "unsafe_water", facts end
         if facts.water < config.minDrinkWater and facts.waterPotential < config.minSpringPotential then
             return false, "no_drinkable_water", facts
         end
@@ -86,31 +91,31 @@ function AffordancePolicy.Evaluate(cell, action, options)
     end
 
     if action == "Eat" then
-        if facts.hazardBlocked or facts.danger > config.maxForageDanger then
-            return false, "unsafe_food", facts
-        end
+        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if not accessible then return false, accessReason, facts end
+        if facts.danger > config.maxForageDanger then return false, "unsafe_food", facts end
         if facts.food < config.minEatFood then return false, "insufficient_food", facts end
         return true, "ok", facts
     end
 
     if action == "Forage" then
-        if facts.hazardBlocked or facts.danger > config.maxForageDanger then
-            return false, "unsafe_forage", facts
-        end
+        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if not accessible then return false, accessReason, facts end
+        if facts.danger > config.maxForageDanger then return false, "unsafe_forage", facts end
         if facts.food <= config.minForageFood then return false, "no_forage", facts end
         return true, "ok", facts
     end
 
     if action == "HarvestWood" then
-        if facts.hazardBlocked or facts.danger > config.maxHarvestDanger then
-            return false, "unsafe_harvest", facts
-        end
+        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if not accessible then return false, accessReason, facts end
+        if facts.danger > config.maxHarvestDanger then return false, "unsafe_harvest", facts end
         if facts.wood < config.minHarvestWood then return false, "insufficient_wood", facts end
         return true, "ok", facts
     end
 
     if action == "Rest" then
-        local walkable, reason = AffordancePolicy.Evaluate(cell, "Walk", config)
+        local walkable, reason = requirePhysicalAccess(facts, config)
         if not walkable then return false, reason, facts end
         if not facts.safe then return false, "unsafe_to_rest", facts end
         if facts.slope >= config.maxRestSlope then return false, "slope_too_steep", facts end
@@ -118,7 +123,7 @@ function AffordancePolicy.Evaluate(cell, action, options)
     end
 
     if action == "Build" then
-        local walkable, reason = AffordancePolicy.Evaluate(cell, "Walk", config)
+        local walkable, reason = requirePhysicalAccess(facts, config)
         if not walkable then return false, reason, facts end
         if not facts.safe then return false, "unsafe_to_build", facts end
         if facts.slope >= config.maxBuildSlope then return false, "slope_too_steep", facts end
