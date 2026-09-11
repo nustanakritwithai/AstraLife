@@ -1,9 +1,7 @@
+local AffordancePolicy = require(script.Parent.AffordancePolicy)
+
 local EnvironmentQuery = {}
 EnvironmentQuery.__index = EnvironmentQuery
-
-local function effectiveDanger(cell)
-    return math.max(cell.danger or 0, cell.hazardDanger or 0)
-end
 
 function EnvironmentQuery.new(grid)
     assert(grid, "grid is required")
@@ -16,6 +14,30 @@ function EnvironmentQuery:GetCellAtWorldPosition(position)
         return nil
     end
     return self.grid:ReadCell(x, z)
+end
+
+function EnvironmentQuery:EvaluateActionAt(position, action, options)
+    local cell = self:GetCellAtWorldPosition(position)
+    local allowed, reason, facts = AffordancePolicy.Evaluate(cell, action, options)
+    return {
+        allowed = allowed,
+        reason = reason,
+        action = action,
+        cell = cell,
+        facts = facts,
+    }
+end
+
+function EnvironmentQuery:EvaluateCellAction(x, z, action, options)
+    local cell = self.grid:ReadCell(x, z)
+    local allowed, reason, facts = AffordancePolicy.Evaluate(cell, action, options)
+    return {
+        allowed = allowed,
+        reason = reason,
+        action = action,
+        cell = cell,
+        facts = facts,
+    }
 end
 
 function EnvironmentQuery:GetAffordancesAt(position)
@@ -31,31 +53,47 @@ function EnvironmentQuery:GetAffordancesAt(position)
             canRest = false,
             canBuild = false,
             safe = false,
+            reasons = {
+                Walk = "outside_world",
+                Drink = "outside_world",
+                Eat = "outside_world",
+                Forage = "outside_world",
+                HarvestWood = "outside_world",
+                Rest = "outside_world",
+                Build = "outside_world",
+            },
         }
     end
 
-    local danger = effectiveDanger(cell)
-    local safe = danger <= 0.25
+    local actions = AffordancePolicy.Snapshot(cell)
+    local danger = AffordancePolicy.EffectiveDanger(cell)
     local slope = cell.slope or 0
     local food = math.max(0, cell.food or 0)
     local wood = math.max(0, cell.wood or 0)
-    local blockedByHazard = cell.hazardBlocked == true
-    local canWalk = cell.walkable == true and not blockedByHazard
 
     return {
         inWorld = true,
-        canWalk = canWalk,
-        canDrink = cell.water >= 0.2 or (cell.waterPotential or 0) >= 0.85,
-        canEat = food >= 1,
-        canForage = food > 0.05,
-        canHarvestWood = wood >= 1,
-        canRest = canWalk and safe and slope < 0.65,
-        canBuild = canWalk and safe and cell.water < 0.15 and slope < 0.35,
-        safe = safe,
+        canWalk = actions.Walk.allowed,
+        canDrink = actions.Drink.allowed,
+        canEat = actions.Eat.allowed,
+        canForage = actions.Forage.allowed,
+        canHarvestWood = actions.HarvestWood.allowed,
+        canRest = actions.Rest.allowed,
+        canBuild = actions.Build.allowed,
+        safe = danger <= 0.25 and cell.hazardBlocked ~= true,
+        reasons = {
+            Walk = actions.Walk.reason,
+            Drink = actions.Drink.reason,
+            Eat = actions.Eat.reason,
+            Forage = actions.Forage.reason,
+            HarvestWood = actions.HarvestWood.reason,
+            Rest = actions.Rest.reason,
+            Build = actions.Build.reason,
+        },
         danger = danger,
         baseDanger = cell.danger or 0,
         hazardDanger = cell.hazardDanger or 0,
-        hazardBlocked = blockedByHazard,
+        hazardBlocked = cell.hazardBlocked == true,
         dominantHazard = cell.dominantHazard or "None",
         fireIntensity = cell.fireIntensity or 0,
         floodSeverity = cell.floodSeverity or 0,
@@ -71,6 +109,7 @@ function EnvironmentQuery:GetAffordancesAt(position)
         temperature = cell.temperature,
         fertility = cell.fertility,
         waterPotential = cell.waterPotential,
+        water = math.max(0, cell.water or 0),
         vegetation = cell.vegetation or 0,
         vegetationCapacity = cell.vegetationCapacity or 0,
         food = food,
@@ -83,12 +122,16 @@ end
 
 function EnvironmentQuery:IsWalkable(position)
     local cell = self:GetCellAtWorldPosition(position)
-    return cell ~= nil and cell.walkable == true and cell.hazardBlocked ~= true
+    if not cell then return false end
+    local allowed = AffordancePolicy.Evaluate(cell, "Walk")
+    return allowed == true
 end
 
 function EnvironmentQuery:IsSafe(position, maxDanger)
     local cell = self:GetCellAtWorldPosition(position)
-    return cell ~= nil and effectiveDanger(cell) <= (maxDanger or 0.25)
+    return cell ~= nil
+        and cell.hazardBlocked ~= true
+        and AffordancePolicy.EffectiveDanger(cell) <= (maxDanger or 0.25)
 end
 
 function EnvironmentQuery:FindBestCell(originPosition, radiusCells, scorer)
