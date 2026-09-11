@@ -7,7 +7,7 @@ gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local panel = Instance.new("Frame")
-panel.Size = UDim2.fromOffset(520, 485)
+panel.Size = UDim2.fromOffset(570, 545)
 panel.Position = UDim2.fromOffset(16, 16)
 panel.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
 panel.BackgroundTransparency = 0.1
@@ -39,7 +39,7 @@ end
 local function agentLine(agent)
     if not agent then return "-" end
     return string.format(
-        "%s [%s] G=%s Carry=%s/%s H:%s T:%s E:%s Safe:%s Soc:%s",
+        "%s [%s] G=%s Carry=%s/%s H:%s T:%s E:%s Safe:%s Soc:%s | Sk S:%s G:%s B:%s",
         agent.Name,
         tostring(attr(agent, "Role", "?")),
         tostring(attr(agent, "Goal", "?")),
@@ -49,7 +49,10 @@ local function agentLine(agent)
         tostring(attr(agent, "Thirst", "?")),
         tostring(attr(agent, "Energy", "?")),
         tostring(attr(agent, "Safety", "?")),
-        tostring(attr(agent, "Social", "?"))
+        tostring(attr(agent, "Social", "?")),
+        tostring(math.floor(tonumber(attr(agent, "Skill_Scout", 0)) or 0)),
+        tostring(math.floor(tonumber(attr(agent, "Skill_Gatherer", 0)) or 0)),
+        tostring(math.floor(tonumber(attr(agent, "Skill_Builder", 0)) or 0))
     )
 end
 
@@ -67,7 +70,7 @@ while task.wait(0.5) do
 
     local lines = {
         "ASTRALIFE ROBLOX " .. tostring(attr(state, "Version", "?")),
-        string.format("Tick:%s P1:%s P2:%s P3:%s P4:%s P5:%s", attr(state, "WorldTick", 0), attr(state, "P1Status", "?"), attr(state, "P2Status", "?"), attr(state, "P3Status", "?"), attr(state, "P4Status", "?"), attr(state, "P5Status", "?")),
+        string.format("Tick:%s P1:%s P2:%s P3:%s P4:%s P5:%s P6:%s", attr(state, "WorldTick", 0), attr(state, "P1Status", "?"), attr(state, "P2Status", "?"), attr(state, "P3Status", "?"), attr(state, "P4Status", "?"), attr(state, "P5Status", "?"), attr(state, "P6Status", "?")),
         string.format("WORLD Phase:%s Clock:%.1f Weather:%s Event:%s Danger:%s", tostring(attr(state, "DayPhase", "?")), tonumber(attr(state, "ClockTime", 0)) or 0, tostring(attr(state, "Weather", "?")), tostring(attr(state, "WorldEvent", "None")), tostring(attr(state, "DangerActive", false))),
         "",
         string.format("STOCK Wood:%s Stone:%s Food:%s Water:%s", attr(state, "Stock_Wood", 0), attr(state, "Stock_Stone", 0), attr(state, "Stock_Food", 0), attr(state, "Stock_Water", 0)),
@@ -83,6 +86,7 @@ while task.wait(0.5) do
         string.format("P3 site:%s delivery:%s ready:%s wait:%s build:%s complete:%s", tostring(attr(state, "P3_SiteCreated", false)), tostring(attr(state, "P3_PhysicalDelivery", false)), tostring(attr(state, "P3_AllMaterialsDelivered", false)), tostring(attr(state, "P3_BuilderWaited", false)), tostring(attr(state, "P3_BuildProgress", false)), tostring(attr(state, "P3_BuildCompleted", false))),
         string.format("P4 needs:%s goal:%s eat:%s drink:%s rest:%s social:%s", tostring(attr(state, "P4_NeedsDecayed", false)), tostring(attr(state, "P4_SurvivalGoalObserved", false)), tostring(attr(state, "P4_EatObserved", false)), tostring(attr(state, "P4_DrinkObserved", false)), tostring(attr(state, "P4_RestObserved", false)), tostring(attr(state, "P4_SocialObserved", false))),
         string.format("P5 day:%s weather:%s event:%s regen:%s threat:%s needs:%s response:%s", tostring(attr(state, "P5_DayNightChanged", false)), tostring(attr(state, "P5_WeatherChanged", false)), tostring(attr(state, "P5_WorldEventTriggered", false)), tostring(attr(state, "P5_ResourceRegenerated", false)), tostring(attr(state, "P5_ThreatSpawned", false)), tostring(attr(state, "P5_WeatherAffectedNeeds", false)), tostring(attr(state, "P5_EnvironmentResponse", false))),
+        string.format("P6 init:%s eval:%s skill:%s coverage:%s reassign:%s changed:%s", tostring(attr(state, "P6_InitialAssignment", false)), tostring(attr(state, "P6_RoleEvaluated", false)), tostring(attr(state, "P6_SkillUpdated", false)), tostring(attr(state, "P6_CoverageBalanced", false)), tostring(attr(state, "P6_ReassignmentReady", false)), tostring(attr(state, "P6_RoleChanged", false))),
     }
 
     label.Text = table.concat(lines, "\n")
