@@ -1,12 +1,13 @@
 local WorldSimVerifier = {}
 
 local REQUIRED_FOLDERS = {
-    "Market", "Settlement", "Relationships", "Territory", "Routes", "Organization", "Metrics", "Replay",
+    "Market", "Labor", "Ecology", "Threats", "Settlement", "Relationships",
+    "Territory", "Routes", "Organization", "Population", "Metrics", "Replay",
 }
 
 local REQUIRED_AGENT_ATTRS = {
     "Trait_Bravery", "Trait_Greed", "Trait_Loyalty", "Trait_Ambition", "Trait_RiskTolerance", "Trait_Discipline",
-    "DominantMotive", "InjurySeverity", "WorldMod_Work", "SimulationLOD", "OrganizationId",
+    "DominantMotive", "InjurySeverity", "WorldMod_Work", "SimulationLOD", "OrganizationId", "LaborBestProfession",
 }
 
 function WorldSimVerifier.Update(folders, simRoot)
@@ -22,12 +23,20 @@ function WorldSimVerifier.Update(folders, simRoot)
 
     local market = simRoot:FindFirstChild("Market")
     if market and market:GetAttribute("Price_Food") == nil then table.insert(failures, "market") end
+    local labor = simRoot:FindFirstChild("Labor")
+    if labor and labor:GetAttribute("HighestDemandProfession") == nil then table.insert(failures, "labor") end
+    local ecology = simRoot:FindFirstChild("Ecology")
+    if ecology and ecology:GetAttribute("ActiveResourceTotal") == nil then table.insert(failures, "ecology") end
+    local threats = simRoot:FindFirstChild("Threats")
+    if threats and threats:GetAttribute("ThreatPressure") == nil then table.insert(failures, "threats") end
     local settlement = simRoot:FindFirstChild("Settlement")
     if settlement and settlement:GetAttribute("Stability") == nil then table.insert(failures, "settlement") end
     local territory = simRoot:FindFirstChild("Territory")
     if territory and (territory:GetAttribute("ClaimedCellCount") or 0) < 1 then table.insert(failures, "territory") end
     local routes = simRoot:FindFirstChild("Routes")
     if routes and (routes:GetAttribute("NodeCount") or 0) < 1 then table.insert(failures, "routes") end
+    local population = simRoot:FindFirstChild("Population")
+    if population and population:GetAttribute("Total") == nil then table.insert(failures, "population") end
     local replay = simRoot:FindFirstChild("Replay")
     if replay and (replay:GetAttribute("HistoryCount") or 0) < 1 then table.insert(failures, "replay") end
 
