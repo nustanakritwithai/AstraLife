@@ -6,6 +6,7 @@ local Config = require(Astra.Config)
 local WorldState = require(Astra.WorldState)
 local SharedKnowledge = require(Astra.SharedKnowledge)
 local P2Verifier = require(Astra.P2Verifier)
+local P3Verifier = require(Astra.P3Verifier)
 
 local folders = WorldState.Ensure(Config)
 local started = setmetatable({}, { __mode = "k" })
@@ -45,7 +46,8 @@ task.spawn(function()
         folders.state:SetAttribute("ExpiredSharedKnowledge", (folders.state:GetAttribute("ExpiredSharedKnowledge") or 0) + expired)
         folders.state:SetAttribute("KnownResourceCount", SharedKnowledge.ActiveCount(tick))
         P2Verifier.Update(folders.state)
+        P3Verifier.Update(folders.state)
     end
 end)
 
-print("[AstraLife] Agent service online - P2")
+print("[AstraLife] Agent service online - P3 Construction V2")
