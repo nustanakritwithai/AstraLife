@@ -5,6 +5,7 @@ local Astra = ReplicatedStorage:WaitForChild("Astra")
 local BuildingModules = Astra:WaitForChild("Building")
 local BuildPieceCatalog = require(BuildingModules.BuildPieceCatalog)
 local BuildingLifecycleService = require(script.Parent.BuildingLifecycleService)
+local SurfaceResolver = require(BuildingModules.SurfaceResolver)
 
 local BuildingMapSeeder = {}
 
@@ -32,32 +33,10 @@ local function metadata(grade)
     }
 end
 
-local function physicalGroundTopY(position)
-    local baseplate = Workspace:FindFirstChild("AstraBaseplate")
-    if baseplate and baseplate:IsA("BasePart") then
-        local localPoint = baseplate.CFrame:PointToObjectSpace(Vector3.new(
-            position.X,
-            baseplate.Position.Y,
-            position.Z
-        ))
-        if math.abs(localPoint.X) <= baseplate.Size.X * 0.5
-            and math.abs(localPoint.Z) <= baseplate.Size.Z * 0.5
-        then
-            return baseplate.Position.Y + baseplate.Size.Y * 0.5
-        end
-    end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local buildings = Workspace:FindFirstChild("AstraModularBuildings")
-    params.FilterDescendantsInstances = buildings and { buildings } or {}
-
-    local hit = Workspace:Raycast(
-        Vector3.new(position.X, 256, position.Z),
-        Vector3.new(0, -512, 0),
-        params
-    )
-    return hit and hit.Position.Y or 0
+local function physicalGroundTopY(current, position)
+    return SurfaceResolver.TopY(position, {
+        exclude = { current.renderFolder },
+    })
 end
 
 local function moveInstance(instance, delta)
@@ -81,7 +60,7 @@ end
 local function alignRootToPhysicalMap(current, piece)
     local definition = BuildPieceCatalog.Get(piece.pieceType)
     local halfHeight = definition and definition.size.Y * 0.5 or 0.5
-    local desiredCenterY = physicalGroundTopY(piece.cframe.Position) + halfHeight
+    local desiredCenterY = physicalGroundTopY(current, piece.cframe.Position) + halfHeight
     local deltaY = desiredCenterY - piece.cframe.Position.Y
     if math.abs(deltaY) < 1e-5 then return end
 

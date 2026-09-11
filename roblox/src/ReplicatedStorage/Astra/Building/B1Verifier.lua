@@ -1,6 +1,7 @@
 local BuildGraph = require(script.Parent.BuildGraph)
 local MaterialGradeCatalog = require(script.Parent.MaterialGradeCatalog)
 local PieceLifecycle = require(script.Parent.PieceLifecycle)
+local SurfaceResolver = require(script.Parent.SurfaceResolver)
 
 local B1Verifier = {}
 
@@ -250,6 +251,19 @@ function B1Verifier.Run()
         results
     )
 
+    -- I0.2 boundary: the placement surface resolver must preserve logical X/Z
+    -- and return a finite physical Y.
+    local resolved = SurfaceResolver.Project(Vector3.new(5, 100, 7))
+    check(
+        resolved.X == 5
+            and resolved.Z == 7
+            and resolved.Y == resolved.Y
+            and resolved.Y ~= math.huge
+            and resolved.Y ~= -math.huge,
+        "surfaceResolverContract",
+        results
+    )
+
     local passed = true
     for _, value in pairs(results) do
         if not value then
@@ -267,6 +281,7 @@ function B1Verifier.Run()
         repairs = stats.repairs,
         duplicates = stats.duplicates,
         refundedWood = refundedWood,
+        resolvedSurfaceY = resolved.Y,
     }
 end
 

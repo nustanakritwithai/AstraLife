@@ -8,6 +8,7 @@ local BuildGraph = require(BuildingModules.BuildGraph)
 local PlacementValidator = require(BuildingModules.PlacementValidator)
 local PieceRenderer = require(BuildingModules.PieceRenderer)
 local B0Verifier = require(BuildingModules.B0Verifier)
+local SurfaceResolver = require(BuildingModules.SurfaceResolver)
 
 local AstraWorldFolder = script.Parent.Parent:WaitForChild("AstraWorld")
 local EcosystemService = require(AstraWorldFolder:WaitForChild("EcosystemService"))
@@ -182,8 +183,14 @@ function ModularBuildingService.PreviewRoot(pieceType, requestedPosition, yawDeg
 
     local x, z = current.runtime.grid:WorldToCell(requestedPosition)
     if not x then return { allowed = false, reason = "outside_world" } end
-    local terrainCenter = current.runtime.grid:CellCenter(x, z)
-    local y = terrainCenter.Y + definition.size.Y * 0.5
+
+    -- Logical X/Z stays authoritative; the piece root is projected onto the
+    -- physically reachable Roblox surface (I0.2 boundary), never the logical
+    -- terrain height which can float above or sink under the playable map.
+    local surfaceY = SurfaceResolver.TopY(requestedPosition, {
+        exclude = { current.renderFolder },
+    })
+    local y = surfaceY + definition.size.Y * 0.5
     local cframe = current.validator:SnapRoot(Vector3.new(requestedPosition.X, y, requestedPosition.Z), yawDegrees)
     local allowed, reason = current.validator:ValidateRoot(pieceType, cframe)
     return {
