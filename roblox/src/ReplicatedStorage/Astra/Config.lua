@@ -1,6 +1,6 @@
 local Config = {}
 
-Config.RuntimeVersion = "0.7.0-p7"
+Config.RuntimeVersion = "0.7.5-w7-integration"
 
 Config.TickSeconds = 2
 Config.ThinkVisibleSeconds = 2
@@ -21,6 +21,8 @@ Config.WalkSpeed = 9
 Config.RunSpeed = 14
 Config.StuckDistanceEpsilon = 0.75
 Config.StuckTicksBeforePath = 3
+Config.PathRecomputeIntervalTicks = 2
+Config.PathTargetChangeDistance = 4
 
 Config.ShortMemoryLimit = 40
 Config.LongMemoryLimit = 120
@@ -32,6 +34,8 @@ Config.SharedKnowledgeTTL = 12
 Config.ReportedResourceConfidence = 0.75
 Config.DirectObservationConfidence = 1.0
 Config.MaxMessageQueueSize = 50
+Config.MessageRegistryTTL = 24
+Config.MessageRegistryCleanupIntervalTicks = 6
 
 -- P4 survival needs: 100 = fully satisfied, 0 = critical.
 Config.HungerStart = 70
@@ -58,12 +62,12 @@ Config.SocialLow = 28
 Config.SocialRestore = 35
 Config.CriticalNeedDamage = 4
 Config.HealthyRecovery = 1
-Config.SurvivalStockTargetFood = 4
-Config.SurvivalStockTargetWater = 4
-Config.DemoStartingFood = 2
-Config.DemoStartingWater = 2
+Config.SurvivalStockTargetFood = 10
+Config.SurvivalStockTargetWater = 10
+Config.DemoStartingFood = 8
+Config.DemoStartingWater = 8
 
--- P5 deterministic Living World.
+-- Legacy P5 fallback values. When W2 is online, climate authority comes from AstraLivingWorldState.
 Config.DayLengthTicks = 24
 Config.DawnEndTick = 3
 Config.DayEndTick = 12
@@ -75,7 +79,7 @@ Config.NightEnergyDecayMultiplier = 1.20
 Config.StormEnergyDecayMultiplier = 1.35
 Config.StormSafetyLossPerTick = 5
 Config.WorldResourceGrowthInterval = 3
-Config.WorldResourceMaxBonusNodes = 6
+Config.WorldResourceMaxBonusNodes = 10
 Config.ThreatDurationTicks = 6
 Config.DangerZonePosition = Vector3.new(18, 1, 2)
 Config.DangerZoneSize = Vector3.new(18, 1, 18)
@@ -91,7 +95,6 @@ Config.RoleInertiaBonus = 10
 Config.RoleInitialHintBonus = 30
 Config.RoleSkillWeight = 1.15
 Config.RoleTraitWeight = 0.75
--- Legacy tick-based XP is disabled under P7. SkillLearning is authoritative.
 Config.RoleExperienceScout = 0
 Config.RoleExperienceGatherer = 0
 Config.RoleExperienceBuilder = 0
@@ -119,13 +122,31 @@ Config.P7MaxResourceRangeMultiplier = 1.45
 Config.P7MaxBuildSpeedMultiplier = 1.75
 Config.P7MinSurvivalDecayMultiplier = 0.70
 
+-- P7.5 12-agent scale/integration test.
+Config.ScaleAgentCount = 12
+Config.ScaleResourceNodeCount = 24
+Config.DecisionStaggerStepSeconds = 0.14
+Config.ScaleRoleTargets = { Scout = 2, Gatherer = 7, Builder = 3 }
+Config.ScaleRoleGapBonus = 9
+Config.ScaleRoleOverTargetPenalty = 3
+Config.ScaleVerifierMinTicks = 30
+Config.ScaleLongRunTicks = 500
+Config.ScaleMaxStuckAgents = 3
+Config.ScaleMaxMessageRegistry = 900
+Config.ScaleRoleTolerance = 2
+
+-- W7 integration compatibility.
+Config.W7IntegrationEnabled = true
+Config.LivingWorldDecisionTicks = 8 -- 8 * 0.25s = 2s, matching the legacy Agent cadence.
+Config.LivingWorldPhysicalSize = 1056 -- covers the 64x64 * 16-stud logical world with a small margin.
+
 Config.ResourceRespawnSeconds = 14
-Config.DemoResourceCount = 8
+Config.DemoResourceCount = 24
 Config.CreateDemoResources = true
 Config.CreateDemoAgents = true
 
 Config.CarryCapacity = 3
-Config.StorageCapacity = 40
+Config.StorageCapacity = 120
 Config.StoragePosition = Vector3.new(0, 2.5, 0)
 
 Config.P3RequestMode = true
