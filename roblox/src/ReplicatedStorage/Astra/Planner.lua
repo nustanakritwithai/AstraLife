@@ -21,18 +21,20 @@ local function colonyHasNeed(agentsFolder, attribute)
     return false
 end
 
-local function environmentGoal(state, config)
-    local worldState = state.folders.state
-    local weather = worldState:GetAttribute("Weather") or "Clear"
-    local isNight = worldState:GetAttribute("IsNight") == true
+local function environmentGoal(state, observations, config)
+    local environment = observations.environment or {}
+    local weather = environment.weather or "Clear"
+    local isNight = environment.isNight == true
 
     if weather == "Storm" and config.EnvironmentShelterInStorm then
-        worldState:SetAttribute("P5_EnvironmentResponse", true)
+        state.agent:SetAttribute("P5EnvironmentResponse", true)
+        state.folders.state:SetAttribute("P5_EnvironmentResponse", true)
         return "Rest", 116
     end
 
     if isNight and config.EnvironmentShelterAtNight and state.needs.energy < 85 then
-        worldState:SetAttribute("P5_EnvironmentResponse", true)
+        state.agent:SetAttribute("P5EnvironmentResponse", true)
+        state.folders.state:SetAttribute("P5_EnvironmentResponse", true)
         return "Rest", 91
     end
 
@@ -73,7 +75,7 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
         return "Rest", 100
     end
 
-    local environmentGoalName, environmentScore = environmentGoal(state, config)
+    local environmentGoalName, environmentScore = environmentGoal(state, observations, config)
     if environmentGoalName then
         return environmentGoalName, environmentScore
     end
