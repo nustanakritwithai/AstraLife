@@ -24,7 +24,7 @@ The pack is passive and additive:
 | deterministic serialization contract | `WorldSimSerialization.lua` | canonical text representation of a snapshot |
 | replay / regression identity | `WorldSimReplay.lua` | bounded 240-tick fingerprint log |
 | observed intent ordering | `WorldSimIntentQueue.lua` | stable order of already-selected Agent goals |
-| stock-demand-scarcity economy | `WorldSimEconomy.lua` | demand, scarcity, price, volatility, trade health |
+| stock-demand-scarcity economy | `WorldSimEconomy.lua` | demand, scarcity, price, volatility, trade health; food pressure reads seasonal crop multiplier without mutating P2 stock |
 | labor market | `WorldSimLaborMarket.lua` | shortage-driven wage premium + best profession opportunity |
 | personality | `WorldSimTraits.lua` | bravery, greed, loyalty, ambition, risk tolerance, discipline |
 | learn-by-doing skills | `WorldSimSkills.lua` | 15 skills + XP/level growth from current actions |
@@ -121,11 +121,13 @@ Traits / Skills / Motives / Injury / Effective modifiers
         ↓
 Relationships
         ↓
-Economy → Labor → Ecology → Threat pressure → Settlement health
+Hydrology → Seasonal Climate → Terrain
         ↓
-Territory → Routes → Organization → LOD → Population → Hydrology
+Economy (season-aware food pressure) → Labor → Ecology → Threat pressure → Settlement health
         ↓
-Seasonal Climate → Terrain → Zones → Disease → Route Security
+Territory → Routes → Organization → LOD → Population → Zones
+        ↓
+Disease → Route Security
         ↓
 Psychology → Migration pressure → Governance → Recruitment → Strategic situation
         ↓
