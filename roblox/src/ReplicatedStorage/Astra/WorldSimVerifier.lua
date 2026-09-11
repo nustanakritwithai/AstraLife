@@ -2,12 +2,14 @@ local WorldSimVerifier = {}
 
 local REQUIRED_FOLDERS = {
     "Market", "Labor", "Ecology", "Threats", "Settlement", "Relationships",
-    "Territory", "Routes", "Organization", "Population", "Metrics", "Replay",
+    "Territory", "Routes", "Organization", "Population", "Migration", "Governance",
+    "Recruitment", "Metrics", "Replay",
 }
 
 local REQUIRED_AGENT_ATTRS = {
     "Trait_Bravery", "Trait_Greed", "Trait_Loyalty", "Trait_Ambition", "Trait_RiskTolerance", "Trait_Discipline",
     "DominantMotive", "InjurySeverity", "WorldMod_Work", "SimulationLOD", "OrganizationId", "LaborBestProfession",
+    "PsychologicalFear", "Morale", "MigrationPressure",
 }
 
 function WorldSimVerifier.Update(folders, simRoot)
@@ -37,6 +39,12 @@ function WorldSimVerifier.Update(folders, simRoot)
     if routes and (routes:GetAttribute("NodeCount") or 0) < 1 then table.insert(failures, "routes") end
     local population = simRoot:FindFirstChild("Population")
     if population and population:GetAttribute("Total") == nil then table.insert(failures, "population") end
+    local migration = simRoot:FindFirstChild("Migration")
+    if migration and migration:GetAttribute("AveragePressure") == nil then table.insert(failures, "migration") end
+    local governance = simRoot:FindFirstChild("Governance")
+    if governance and governance:GetAttribute("Legitimacy") == nil then table.insert(failures, "governance") end
+    local recruitment = simRoot:FindFirstChild("Recruitment")
+    if recruitment and recruitment:GetAttribute("HighestNeedRole") == nil then table.insert(failures, "recruitment") end
     local replay = simRoot:FindFirstChild("Replay")
     if replay and (replay:GetAttribute("HistoryCount") or 0) < 1 then table.insert(failures, "replay") end
 
