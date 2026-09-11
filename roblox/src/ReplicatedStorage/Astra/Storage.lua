@@ -20,6 +20,17 @@ function Storage.FindOrCreate(folders, config)
 end
 
 function Storage.GetDepositPosition(storage)
+    local worldState = workspace:FindFirstChild("AstraWorldState")
+    if worldState then
+        local activeBuild = worldState:GetAttribute("ActiveBuildId") or "None"
+        local materialsReady = worldState:GetAttribute("P3_MaterialsReady") == true
+        local buildPosition = worldState:GetAttribute("P3_BuildSitePosition")
+
+        if activeBuild ~= "None" and not materialsReady and typeof(buildPosition) == "Vector3" then
+            return buildPosition + Vector3.new(0, 0, 4)
+        end
+    end
+
     return storage.Position + Vector3.new(0, 0, 5)
 end
 
