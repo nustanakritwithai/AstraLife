@@ -1,6 +1,6 @@
 local Config = {}
 
-Config.RuntimeVersion = "0.5.0-p5"
+Config.RuntimeVersion = "0.6.0-p6"
 
 Config.TickSeconds = 2
 Config.ThinkVisibleSeconds = 2
@@ -81,6 +81,20 @@ Config.DangerZonePosition = Vector3.new(18, 1, 2)
 Config.DangerZoneSize = Vector3.new(18, 1, 18)
 Config.EnvironmentShelterAtNight = true
 Config.EnvironmentShelterInStorm = true
+
+-- P6 emergent role selection.
+Config.RoleEvaluationIntervalTicks = 4
+Config.RoleMinDurationTicks = 10
+Config.RoleSwitchMargin = 14
+Config.RoleCoverageBonus = 42
+Config.RoleInertiaBonus = 10
+Config.RoleInitialHintBonus = 30
+Config.RoleSkillWeight = 1.15
+Config.RoleTraitWeight = 0.75
+Config.RoleExperienceScout = 0.55
+Config.RoleExperienceGatherer = 0.85
+Config.RoleExperienceBuilder = 1.0
+Config.RoleExperienceSurvival = 0.35
 
 Config.ResourceRespawnSeconds = 14
 Config.DemoResourceCount = 8
