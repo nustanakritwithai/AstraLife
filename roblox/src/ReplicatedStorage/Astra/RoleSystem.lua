@@ -15,9 +15,7 @@ local function nameSeed(name)
 end
 
 local function ensureAgentProfile(agent, config)
-    if agent:GetAttribute("P6ProfileReady") == true then
-        return
-    end
+    if agent:GetAttribute("P6ProfileReady") == true then return end
 
     local hint = agent:GetAttribute("Role") or config.Roles.Explorer
     agent:SetAttribute("InitialRoleHint", hint)
@@ -33,7 +31,9 @@ local function ensureAgentProfile(agent, config)
     agent:SetAttribute("Skill_Survival", 6)
     agent:SetAttribute("RoleExperienceTotal", 0)
     agent:SetAttribute("RoleSinceTick", 0)
-    agent:SetAttribute("RoleAssignedBy", "EmergentRoleSystem")
+    agent:SetAttribute("RoleSwitchCount", 0)
+    -- Do not mark RoleAssignedBy here. Spawned agents must still receive one
+    -- actual emergent-role decision in PrepareAgent.
     agent:SetAttribute("P6ProfileReady", true)
 end
 
@@ -42,12 +42,28 @@ local function countRoles(agentsFolder, excludeAgent)
     for _, other in ipairs(agentsFolder:GetChildren()) do
         if other:IsA("Model") and other ~= excludeAgent then
             local role = other:GetAttribute("Role")
-            if counts[role] ~= nil then
-                counts[role] += 1
-            end
+            if counts[role] ~= nil then counts[role] += 1 end
         end
     end
     return counts
+end
+
+local function syncRoleCounts(folders, config)
+    local counts = countRoles(folders.agents, nil)
+    local targetHealthy = true
+    for _, role in ipairs(ROLE_ORDER) do
+        folders.state:SetAttribute("ScaleRoleCount_" .. role, counts[role])
+        local targets = config.ScaleRoleTargets
+        local target = targets and targets[role]
+        if target then
+            folders.state:SetAttribute("ScaleRoleTarget_" .. role, target)
+            if math.abs(counts[role] - target) > (config.ScaleRoleTolerance or 2) then
+                targetHealthy = false
+            end
+        end
+    end
+    folders.state:SetAttribute("ScaleRoleTargetHealthy", targetHealthy)
+    return counts, targetHealthy
 end
 
 local function buildMissing(worldState)
@@ -63,9 +79,7 @@ end
 local function unfinishedStructures(folders, config)
     local count = 0
     for _, blueprint in ipairs(config.Blueprints) do
-        if not folders.structures:FindFirstChild(blueprint.id) then
-            count += 1
-        end
+        if not folders.structures:FindFirstChild(blueprint.id) then count += 1 end
     end
     return count
 end
@@ -75,7 +89,7 @@ local function demandFor(role, folders, config)
     if role == config.Roles.Scout then
         local known = state:GetAttribute("KnownResourceCount") or 0
         local event = state:GetAttribute("WorldEvent") or "None"
-        return 12 + (known < 4 and 22 or 4) + (event ~= "None" and 12 or 0)
+        return 12 + (known < 8 and 22 or 4) + (event ~= "None" and 12 or 0)
     elseif role == config.Roles.Gatherer then
         local missing = math.min(30, buildMissing(state) * 5)
         local food = state:GetAttribute("Stock_Food") or 0
@@ -86,9 +100,7 @@ local function demandFor(role, folders, config)
     elseif role == config.Roles.Builder then
         local buildStatus = state:GetAttribute("BuildStatus") or "Idle"
         local active = state:GetAttribute("ActiveBuildId") or "None"
-        if active ~= "None" or buildStatus ~= "Idle" then
-            return 45
-        end
+        if active ~= "None" or buildStatus ~= "Idle" then return 45 end
         return unfinishedStructures(folders, config) > 0 and 28 or 4
     end
     return 0
@@ -99,25 +111,38 @@ local function roleSkill(agent, role)
 end
 
 local function traitScore(agent, role)
-    if role == "Scout" then
-        return agent:GetAttribute("TraitCuriosity") or 0
-    elseif role == "Gatherer" then
-        return agent:GetAttribute("TraitIndustry") or 0
-    elseif role == "Builder" then
-        return agent:GetAttribute("TraitCraft") or 0
-    end
+    if role == "Scout" then return agent:GetAttribute("TraitCuriosity") or 0 end
+    if role == "Gatherer" then return agent:GetAttribute("TraitIndustry") or 0 end
+    if role == "Builder" then return agent:GetAttribute("TraitCraft") or 0 end
     return 0
+end
+
+local function distributionScore(role, counts, config)
+    local targets = config.ScaleRoleTargets
+    if not targets or not targets[role] then
+        return counts[role] == 0 and config.RoleCoverageBonus or 0
+    end
+
+    local target = targets[role]
+    local projected = counts[role] + 1
+    local missingBeforeAssignment = math.max(0, target - counts[role])
+    local overAfterAssignment = math.max(0, projected - target)
+
+    local score = missingBeforeAssignment * (config.ScaleRoleGapBonus or 9)
+    score -= overAfterAssignment * (config.ScaleRoleOverTargetPenalty or 3)
+    if counts[role] == 0 then score += config.RoleCoverageBonus end
+    return score
 end
 
 local function scoreRole(agent, role, folders, config, currentRole, includeHint)
     local counts = countRoles(folders.agents, agent)
-    local coverage = counts[role] == 0 and config.RoleCoverageBonus or 0
+    local distribution = distributionScore(role, counts, config)
     local inertia = currentRole == role and config.RoleInertiaBonus or 0
     local hint = includeHint and agent:GetAttribute("InitialRoleHint") == role and config.RoleInitialHintBonus or 0
     local skill = roleSkill(agent, role) * config.RoleSkillWeight
     local trait = traitScore(agent, role) * config.RoleTraitWeight
     local demand = demandFor(role, folders, config)
-    return skill + trait + demand + coverage + inertia + hint
+    return skill + trait + demand + distribution + inertia + hint
 end
 
 local function chooseRole(agent, folders, config, currentRole, includeHint)
@@ -127,9 +152,7 @@ local function chooseRole(agent, folders, config, currentRole, includeHint)
         local score = scoreRole(agent, role, folders, config, currentRole, includeHint)
         scores[role] = score
         agent:SetAttribute("RoleScore_" .. role, math.floor(score * 10) / 10)
-        if score > bestScore then
-            bestRole, bestScore = role, score
-        end
+        if score > bestScore then bestRole, bestScore = role, score end
     end
     return bestRole, bestScore, scores
 end
@@ -142,9 +165,7 @@ local function isRoleLocked(agent, folders, config)
     if role == config.Roles.Builder then
         local worker = folders.state:GetAttribute("ActiveBuildWorker")
         local status = folders.state:GetAttribute("BuildStatus") or "Idle"
-        if worker == agent.Name and status ~= "Idle" then
-            return true, "active_build"
-        end
+        if worker == agent.Name and status ~= "Idle" then return true, "active_build" end
     end
     return false, nil
 end
@@ -155,6 +176,7 @@ local function assignRole(agent, role, score, tick, reason, worldState)
     agent:SetAttribute("Role", role)
     agent:SetAttribute("RoleSinceTick", tick)
     agent:SetAttribute("RoleAssignedBy", "EmergentRoleSystem")
+    agent:SetAttribute("P6RoleInitialized", true)
     agent:SetAttribute("RoleDecisionScore", math.floor(score * 10) / 10)
     agent:SetAttribute("RoleDecisionReason", reason)
     agent:SetAttribute("LastRoleEvaluationTick", tick)
@@ -202,7 +224,9 @@ end
 function RoleSystem.PrepareAgent(agent, folders, config, tick)
     if not agent or not agent:IsA("Model") then return nil end
     ensureAgentProfile(agent, config)
-    if agent:GetAttribute("RoleAssignedBy") ~= "EmergentRoleSystem"
+
+    if agent:GetAttribute("P6RoleInitialized") ~= true
+        or agent:GetAttribute("Role") == nil
         or agent:GetAttribute("Role") == "Unassigned"
     then
         local bestRole, bestScore = chooseRole(agent, folders, config, nil, true)
@@ -211,7 +235,9 @@ function RoleSystem.PrepareAgent(agent, folders, config, tick)
         folders.state:SetAttribute("P6_RoleEvaluated", true)
         folders.state:SetAttribute("P6_RoleDecisionRecorded", true)
     end
+
     folders.state:SetAttribute("P6_CoverageBalanced", coverageBalanced(folders.agents, config))
+    syncRoleCounts(folders, config)
     return agent:GetAttribute("Role")
 end
 
@@ -221,6 +247,7 @@ function RoleSystem.Initialize(folders, config)
         if agent:IsA("Model") then
             ensureAgentProfile(agent, config)
             agent:SetAttribute("Role", "Unassigned")
+            agent:SetAttribute("P6RoleInitialized", false)
             table.insert(agents, agent)
         end
     end
@@ -237,6 +264,7 @@ function RoleSystem.Initialize(folders, config)
     folders.state:SetAttribute("P6_RoleEvaluated", true)
     folders.state:SetAttribute("P6_CoverageBalanced", coverageBalanced(folders.agents, config))
     folders.state:SetAttribute("P6_RoleDecisionRecorded", true)
+    syncRoleCounts(folders, config)
 end
 
 function RoleSystem.Tick(folders, tick, config)
@@ -248,36 +276,42 @@ function RoleSystem.Tick(folders, tick, config)
     end
 
     if tick % config.RoleEvaluationIntervalTicks ~= 0 then
+        syncRoleCounts(folders, config)
         return
     end
 
+    local agents = {}
     for _, agent in ipairs(folders.agents:GetChildren()) do
-        if agent:IsA("Model") then
-            local currentRole = agent:GetAttribute("Role")
-            local since = agent:GetAttribute("RoleSinceTick") or 0
-            local locked, lockReason = isRoleLocked(agent, folders, config)
-            local bestRole, bestScore, scores = chooseRole(agent, folders, config, currentRole, false)
-            agent:SetAttribute("LastRoleEvaluationTick", tick)
-            agent:SetAttribute("SuggestedRole", bestRole)
-            agent:SetAttribute("RoleLocked", locked)
-            agent:SetAttribute("RoleLockReason", lockReason or "None")
-            folders.state:SetAttribute("P6_RoleEvaluated", true)
-            folders.state:SetAttribute("P6_RoleDecisionRecorded", true)
+        if agent:IsA("Model") then table.insert(agents, agent) end
+    end
+    table.sort(agents, function(a, b) return a.Name < b.Name end)
 
-            local currentScore = scores[currentRole] or -math.huge
-            local age = tick - since
-            if not locked
-                and bestRole ~= currentRole
-                and age >= config.RoleMinDurationTicks
-                and bestScore >= currentScore + config.RoleSwitchMargin
-            then
-                assignRole(agent, bestRole, bestScore, tick, "demand_skill_reassignment", folders.state)
-            end
+    for _, agent in ipairs(agents) do
+        local currentRole = agent:GetAttribute("Role")
+        local since = agent:GetAttribute("RoleSinceTick") or 0
+        local locked, lockReason = isRoleLocked(agent, folders, config)
+        local bestRole, bestScore, scores = chooseRole(agent, folders, config, currentRole, false)
+        agent:SetAttribute("LastRoleEvaluationTick", tick)
+        agent:SetAttribute("SuggestedRole", bestRole)
+        agent:SetAttribute("RoleLocked", locked)
+        agent:SetAttribute("RoleLockReason", lockReason or "None")
+        folders.state:SetAttribute("P6_RoleEvaluated", true)
+        folders.state:SetAttribute("P6_RoleDecisionRecorded", true)
+
+        local currentScore = scores[currentRole] or -math.huge
+        local age = tick - since
+        if not locked
+            and bestRole ~= currentRole
+            and age >= config.RoleMinDurationTicks
+            and bestScore >= currentScore + config.RoleSwitchMargin
+        then
+            assignRole(agent, bestRole, bestScore, tick, "demand_skill_reassignment", folders.state)
         end
     end
 
     folders.state:SetAttribute("P6_CoverageBalanced", coverageBalanced(folders.agents, config))
     folders.state:SetAttribute("P6_ReassignmentReady", true)
+    syncRoleCounts(folders, config)
 end
 
 return RoleSystem
