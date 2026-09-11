@@ -32,16 +32,21 @@ function Determinism.Int(seed, key, tick, minValue, maxValue)
 end
 
 function Determinism.StableSort(items, keyFn)
-    local copy = table.clone(items)
-    table.sort(copy, function(a, b)
-        local ka = tostring(keyFn(a))
-        local kb = tostring(keyFn(b))
-        if ka == kb then
-            return tostring(a) < tostring(b)
-        end
-        return ka < kb
+    local decorated = {}
+    for index, item in ipairs(items) do
+        decorated[index] = {
+            item = item,
+            key = tostring(keyFn(item)),
+            index = index,
+        }
+    end
+    table.sort(decorated, function(a, b)
+        if a.key == b.key then return a.index < b.index end
+        return a.key < b.key
     end)
-    return copy
+    local out = {}
+    for index, entry in ipairs(decorated) do out[index] = entry.item end
+    return out
 end
 
 function Determinism.Fingerprint(parts)
