@@ -248,6 +248,12 @@ function LivingResourceSystem:Step(climate, dirtyTracker, deltaTime)
         self.cursor += 1
     end
 
+    if self.cursor > self.totalCells then
+        self.cursor = 1
+        self.cycle += 1
+        stats.cycleCompleted = true
+    end
+
     self.steps += 1
     self.totals.processed += stats.processed
     self.totals.changed += stats.changed
