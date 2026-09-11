@@ -3,29 +3,48 @@ WorldGrid.__index = WorldGrid
 
 local DEFAULT_CELL = {
     biome = "Plains",
+    terrainType = "Grass",
+    elevation = 0.5,
     height = 0,
+    slope = 0,
     water = 0,
     moisture = 0.5,
     temperature = 0.5,
+    fertility = 0.5,
+    waterPotential = 0.25,
     vegetation = 0,
     food = 0,
     danger = 0,
     walkable = true,
 }
 
+local function cloneTags(tags)
+    local result = {}
+    for index, value in ipairs(tags or {}) do
+        result[index] = value
+    end
+    return result
+end
+
 local function cloneDefault(x, z)
     return {
         x = x,
         z = z,
         biome = DEFAULT_CELL.biome,
+        terrainType = DEFAULT_CELL.terrainType,
+        elevation = DEFAULT_CELL.elevation,
         height = DEFAULT_CELL.height,
+        slope = DEFAULT_CELL.slope,
         water = DEFAULT_CELL.water,
         moisture = DEFAULT_CELL.moisture,
         temperature = DEFAULT_CELL.temperature,
+        fertility = DEFAULT_CELL.fertility,
+        waterPotential = DEFAULT_CELL.waterPotential,
         vegetation = DEFAULT_CELL.vegetation,
         food = DEFAULT_CELL.food,
         danger = DEFAULT_CELL.danger,
         walkable = DEFAULT_CELL.walkable,
+        terrainTags = {},
         version = 0,
     }
 end
@@ -131,9 +150,14 @@ function WorldGrid:CellCenter(x, z, y)
     if not self:IsInside(x, z) then
         return nil
     end
+    local centerY = y
+    if centerY == nil then
+        local cell = self:ReadCell(x, z)
+        centerY = self.origin.Y + (cell and cell.height or 0)
+    end
     return Vector3.new(
         self.origin.X + (x - 0.5) * self.cellSize,
-        y or self.origin.Y,
+        centerY,
         self.origin.Z + (z - 0.5) * self.cellSize
     )
 end
@@ -159,14 +183,20 @@ function WorldGrid:SerializeCell(cell)
         x = cell.x,
         z = cell.z,
         biome = cell.biome,
+        terrainType = cell.terrainType,
+        elevation = cell.elevation,
         height = cell.height,
+        slope = cell.slope,
         water = cell.water,
         moisture = cell.moisture,
         temperature = cell.temperature,
+        fertility = cell.fertility,
+        waterPotential = cell.waterPotential,
         vegetation = cell.vegetation,
         food = cell.food,
         danger = cell.danger,
         walkable = cell.walkable,
+        terrainTags = cloneTags(cell.terrainTags),
         version = cell.version,
     }
 end
