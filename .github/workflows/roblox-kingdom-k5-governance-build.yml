@@ -1,0 +1,47 @@
+name: Build AstraLife Kingdom K5 Governance
+
+on:
+  push:
+    branches:
+      - feat/roblox-kingdom-k5-governance
+    paths:
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/Core/**"
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/K5Governance/**"
+      - "roblox/src/ServerScriptService/AstraKingdom/KingdomCoreService.server.lua"
+      - "roblox/src/ServerScriptService/AstraKingdom/K5GovernanceService.server.lua"
+      - "roblox/KINGDOM_K0_CORE.md"
+      - "roblox/KINGDOM_K5_GOVERNANCE.md"
+      - "roblox/default.project.json"
+      - "rokit.toml"
+      - ".github/workflows/roblox-kingdom-k5-governance-build.yml"
+  pull_request:
+    branches:
+      - feat/roblox-kingdom-k0-core
+    paths:
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/K5Governance/**"
+      - "roblox/src/ServerScriptService/AstraKingdom/K5GovernanceService.server.lua"
+      - "roblox/KINGDOM_K5_GOVERNANCE.md"
+      - "roblox/default.project.json"
+      - "rokit.toml"
+      - ".github/workflows/roblox-kingdom-k5-governance-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+      - name: Build Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-Kingdom-K5-Governance.rbxl
+      - name: Upload playable place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-Kingdom-K5-Governance-Place
+          path: AstraLife-Kingdom-K5-Governance.rbxl
+          if-no-files-found: error
+          retention-days: 14
