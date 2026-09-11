@@ -6,11 +6,7 @@ PieceLifecycle.__index = PieceLifecycle
 local function cloneTable(source)
     local result = {}
     for key, value in pairs(source or {}) do
-        if type(value) == "table" then
-            result[key] = cloneTable(value)
-        else
-            result[key] = value
-        end
+        result[key] = type(value) == "table" and cloneTable(value) or value
     end
     return result
 end
@@ -25,8 +21,8 @@ end
 local function canAfford(economy, recipe)
     if not recipeHasCost(recipe) then return true, "ok" end
     if not economy then return false, "economy_required" end
-    if type(economy.CanAfford) == "function" then
-        if economy:CanAfford(recipe) ~= true then return false, "insufficient_resources" end
+    if type(economy.CanAfford) == "function" and economy:CanAfford(recipe) ~= true then
+        return false, "insufficient_resources"
     end
     if type(economy.Spend) ~= "function" then return false, "economy_missing_spend" end
     return true, "ok"
@@ -53,6 +49,10 @@ local function deposit(economy, recipe)
     return type(economy.Deposit) == "function" and economy:Deposit(recipe) == true
 end
 
+local function scope(action, pieceId, qualifier)
+    return table.concat({ tostring(action), tostring(pieceId), tostring(qualifier or "") }, "|")
+end
+
 function PieceLifecycle.new(graph, config)
     assert(graph, "graph is required")
     config = config or {}
@@ -62,6 +62,7 @@ function PieceLifecycle.new(graph, config)
         sequence = 0,
         seen = {},
         order = {},
+        pendingRefunds = {},
         stats = {
             upgrades = 0,
             repairs = 0,
@@ -69,6 +70,9 @@ function PieceLifecycle.new(graph, config)
             destroyed = 0,
             demolished = 0,
             duplicates = 0,
+            conflicts = 0,
+            refundPending = 0,
+            refundRetries = 0,
             rejected = 0,
         },
     }, PieceLifecycle)
@@ -79,8 +83,24 @@ function PieceLifecycle:_nextId(prefix)
     return string.format("%s:%d", prefix or "building", self.sequence)
 end
 
-function PieceLifecycle:_remember(transactionId, result)
-    self.seen[transactionId] = cloneTable(result)
+function PieceLifecycle:_conflict(transactionId, action, pieceId)
+    self.stats.conflicts += 1
+    self.stats.rejected += 1
+    return {
+        ok = false,
+        duplicate = false,
+        transactionId = transactionId,
+        action = action,
+        pieceId = pieceId,
+        reason = "transaction_conflict",
+    }
+end
+
+function PieceLifecycle:_remember(transactionId, transactionScope, result)
+    self.seen[transactionId] = {
+        scope = transactionScope,
+        result = cloneTable(result),
+    }
     table.insert(self.order, transactionId)
     while #self.order > self.maxHistory do
         local expired = table.remove(self.order, 1)
@@ -88,13 +108,40 @@ function PieceLifecycle:_remember(transactionId, result)
     end
 end
 
-function PieceLifecycle:_dedupe(transactionId)
+function PieceLifecycle:_dedupe(transactionId, transactionScope, action, pieceId)
     local previous = self.seen[transactionId]
     if not previous then return nil end
+    if previous.scope ~= transactionScope then
+        return self:_conflict(transactionId, action, pieceId)
+    end
     self.stats.duplicates += 1
-    local copy = cloneTable(previous)
+    local copy = cloneTable(previous.result)
     copy.duplicate = true
     return copy
+end
+
+function PieceLifecycle:_resumePendingRefund(transactionId, transactionScope, economy, action, pieceId)
+    local pending = self.pendingRefunds[transactionId]
+    if not pending then return nil end
+    if pending.scope ~= transactionScope then
+        return self:_conflict(transactionId, action, pieceId)
+    end
+
+    self.stats.refundRetries += 1
+    local result = cloneTable(pending.result)
+    result.resumed = true
+    if deposit(economy, result.refund) then
+        result.ok = true
+        result.reason = nil
+        result.refunded = true
+        self.pendingRefunds[transactionId] = nil
+        self:_remember(transactionId, transactionScope, result)
+    else
+        result.ok = false
+        result.reason = "refund_pending"
+        result.refunded = false
+    end
+    return cloneTable(result)
 end
 
 function PieceLifecycle:EnsurePiece(piece)
@@ -107,12 +154,8 @@ function PieceLifecycle:EnsurePiece(piece)
     end
 
     local expectedMax = MaterialGradeCatalog.MaxHealth(piece.pieceType, grade) or 1
-    if piece.maxHealth == nil or piece.maxHealth <= 0 then
-        piece.maxHealth = expectedMax
-    end
-    if piece.health == nil then
-        piece.health = piece.maxHealth
-    end
+    if piece.maxHealth == nil or piece.maxHealth <= 0 then piece.maxHealth = expectedMax end
+    if piece.health == nil then piece.health = piece.maxHealth end
 
     piece.maxHealth = math.max(1, piece.maxHealth)
     piece.health = math.clamp(piece.health, 0, piece.maxHealth)
@@ -121,9 +164,7 @@ function PieceLifecycle:EnsurePiece(piece)
 end
 
 function PieceLifecycle:EnsureAll()
-    for _, piece in pairs(self.graph.pieces) do
-        self:EnsurePiece(piece)
-    end
+    for _, piece in pairs(self.graph.pieces) do self:EnsurePiece(piece) end
 end
 
 function PieceLifecycle:Snapshot(pieceId)
@@ -152,7 +193,6 @@ function PieceLifecycle:PreviewUpgrade(pieceId, targetGrade)
     )
     if not recipe then return nil, reason end
 
-    local nextMax = MaterialGradeCatalog.MaxHealth(piece.pieceType, nextGrade)
     return {
         pieceId = piece.id,
         fromGrade = piece.materialGrade,
@@ -160,15 +200,16 @@ function PieceLifecycle:PreviewUpgrade(pieceId, targetGrade)
         recipe = recipe,
         currentHealth = piece.health,
         currentMaxHealth = piece.maxHealth,
-        nextMaxHealth = nextMax,
+        nextMaxHealth = MaterialGradeCatalog.MaxHealth(piece.pieceType, nextGrade),
         healthRatio = piece.maxHealth > 0 and piece.health / piece.maxHealth or 0,
     }, nil
 end
 
 function PieceLifecycle:Upgrade(pieceId, economy, transactionId, targetGrade)
     transactionId = tostring(transactionId or self:_nextId("upgrade"))
-    local duplicate = self:_dedupe(transactionId)
-    if duplicate then return duplicate end
+    local transactionScope = scope("Upgrade", pieceId, targetGrade or "next")
+    local previous = self:_dedupe(transactionId, transactionScope, "Upgrade", pieceId)
+    if previous then return previous end
 
     local preview, reason = self:PreviewUpgrade(pieceId, targetGrade)
     local result = {
@@ -181,31 +222,23 @@ function PieceLifecycle:Upgrade(pieceId, economy, transactionId, targetGrade)
     }
     if not preview then
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
     local affordable, affordabilityReason = canAfford(economy, preview.recipe)
-    if not affordable then
-        result.reason = affordabilityReason
+    if not affordable or not spend(economy, preview.recipe) then
+        result.reason = not affordable and affordabilityReason or "spend_failed"
         result.recipe = cloneTable(preview.recipe)
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
-        return cloneTable(result)
-    end
-    if not spend(economy, preview.recipe) then
-        result.reason = "spend_failed"
-        result.recipe = cloneTable(preview.recipe)
-        self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
     local piece = self:EnsurePiece(self.graph:Get(pieceId))
-    local ratio = preview.healthRatio
     piece.materialGrade = preview.toGrade
     piece.maxHealth = preview.nextMaxHealth
-    piece.health = math.clamp(piece.maxHealth * ratio, 0, piece.maxHealth)
+    piece.health = math.clamp(piece.maxHealth * preview.healthRatio, 0, piece.maxHealth)
     piece.destroyed = piece.health <= 0
 
     result.ok = true
@@ -216,14 +249,18 @@ function PieceLifecycle:Upgrade(pieceId, economy, transactionId, targetGrade)
     result.health = piece.health
     result.maxHealth = piece.maxHealth
     self.stats.upgrades += 1
-    self:_remember(transactionId, result)
+    self:_remember(transactionId, transactionScope, result)
     return cloneTable(result)
 end
 
 function PieceLifecycle:ApplyDamage(pieceId, rawDamage, damageType, transactionId)
+    local normalizedDamage = math.max(0, tonumber(rawDamage) or 0)
+    local normalizedType = damageType or "Generic"
     transactionId = tostring(transactionId or self:_nextId("damage"))
-    local duplicate = self:_dedupe(transactionId)
-    if duplicate then return duplicate end
+    local qualifier = string.format("%.6f|%s", normalizedDamage, tostring(normalizedType))
+    local transactionScope = scope("Damage", pieceId, qualifier)
+    local previous = self:_dedupe(transactionId, transactionScope, "Damage", pieceId)
+    if previous then return previous end
 
     local piece = self:EnsurePiece(self.graph:Get(pieceId))
     local result = {
@@ -232,24 +269,22 @@ function PieceLifecycle:ApplyDamage(pieceId, rawDamage, damageType, transactionI
         transactionId = transactionId,
         action = "Damage",
         pieceId = pieceId,
-        damageType = damageType or "Generic",
-        rawDamage = math.max(0, tonumber(rawDamage) or 0),
+        damageType = normalizedType,
+        rawDamage = normalizedDamage,
     }
 
     if not piece then
         result.reason = "missing_piece"
     elseif piece.destroyed then
         result.reason = "piece_destroyed"
-    elseif result.rawDamage <= 0 then
+    elseif normalizedDamage <= 0 then
         result.reason = "invalid_damage"
     else
-        local multiplier = MaterialGradeCatalog.DamageMultiplier(piece.materialGrade, result.damageType)
-        local applied = math.min(piece.health, result.rawDamage * multiplier)
+        local multiplier = MaterialGradeCatalog.DamageMultiplier(piece.materialGrade, normalizedType)
+        local applied = math.min(piece.health, normalizedDamage * multiplier)
         piece.health = math.max(0, piece.health - applied)
         piece.destroyed = piece.health <= 0
-
         result.ok = true
-        result.reason = nil
         result.grade = piece.materialGrade
         result.multiplier = multiplier
         result.appliedDamage = applied
@@ -261,7 +296,7 @@ function PieceLifecycle:ApplyDamage(pieceId, rawDamage, damageType, transactionI
     end
 
     if not result.ok then self.stats.rejected += 1 end
-    self:_remember(transactionId, result)
+    self:_remember(transactionId, transactionScope, result)
     return cloneTable(result)
 end
 
@@ -273,29 +308,30 @@ function PieceLifecycle:PreviewRepair(pieceId, requestedHealth)
     local missing = math.max(0, piece.maxHealth - piece.health)
     if missing <= 1e-6 then return nil, "full_health" end
 
-    local repairHealth = math.min(
-        missing,
-        math.max(0, tonumber(requestedHealth) or missing)
-    )
+    local repairHealth = math.min(missing, math.max(0, tonumber(requestedHealth) or missing))
     if repairHealth <= 0 then return nil, "invalid_repair_amount" end
 
-    local ratio = repairHealth / piece.maxHealth
-    local recipe = MaterialGradeCatalog.RepairRecipe(piece.pieceType, piece.materialGrade, ratio)
     return {
         pieceId = piece.id,
         grade = piece.materialGrade,
         repairHealth = repairHealth,
         missingHealth = missing,
-        recipe = recipe,
+        recipe = MaterialGradeCatalog.RepairRecipe(
+            piece.pieceType,
+            piece.materialGrade,
+            repairHealth / piece.maxHealth
+        ),
         currentHealth = piece.health,
         maxHealth = piece.maxHealth,
     }, nil
 end
 
 function PieceLifecycle:Repair(pieceId, economy, requestedHealth, transactionId)
+    local qualifier = requestedHealth == nil and "missing" or string.format("%.6f", tonumber(requestedHealth) or 0)
     transactionId = tostring(transactionId or self:_nextId("repair"))
-    local duplicate = self:_dedupe(transactionId)
-    if duplicate then return duplicate end
+    local transactionScope = scope("Repair", pieceId, qualifier)
+    local previous = self:_dedupe(transactionId, transactionScope, "Repair", pieceId)
+    if previous then return previous end
 
     local preview, reason = self:PreviewRepair(pieceId, requestedHealth)
     local result = {
@@ -308,29 +344,21 @@ function PieceLifecycle:Repair(pieceId, economy, requestedHealth, transactionId)
     }
     if not preview then
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
     local affordable, affordabilityReason = canAfford(economy, preview.recipe)
-    if not affordable then
-        result.reason = affordabilityReason
+    if not affordable or not spend(economy, preview.recipe) then
+        result.reason = not affordable and affordabilityReason or "spend_failed"
         result.recipe = cloneTable(preview.recipe)
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
-        return cloneTable(result)
-    end
-    if not spend(economy, preview.recipe) then
-        result.reason = "spend_failed"
-        result.recipe = cloneTable(preview.recipe)
-        self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
     local piece = self:EnsurePiece(self.graph:Get(pieceId))
     piece.health = math.min(piece.maxHealth, piece.health + preview.repairHealth)
-
     result.ok = true
     result.reason = nil
     result.grade = piece.materialGrade
@@ -339,7 +367,7 @@ function PieceLifecycle:Repair(pieceId, economy, requestedHealth, transactionId)
     result.health = piece.health
     result.maxHealth = piece.maxHealth
     self.stats.repairs += 1
-    self:_remember(transactionId, result)
+    self:_remember(transactionId, transactionScope, result)
     return cloneTable(result)
 end
 
@@ -356,8 +384,19 @@ end
 
 function PieceLifecycle:Demolish(pieceId, economy, transactionId, removeCallback)
     transactionId = tostring(transactionId or self:_nextId("demolish"))
-    local duplicate = self:_dedupe(transactionId)
-    if duplicate then return duplicate end
+    local transactionScope = scope("Demolish", pieceId)
+
+    local resumed = self:_resumePendingRefund(
+        transactionId,
+        transactionScope,
+        economy,
+        "Demolish",
+        pieceId
+    )
+    if resumed then return resumed end
+
+    local previous = self:_dedupe(transactionId, transactionScope, "Demolish", pieceId)
+    if previous then return previous end
 
     local preview, reason = self:PreviewDemolish(pieceId)
     local result = {
@@ -370,13 +409,13 @@ function PieceLifecycle:Demolish(pieceId, economy, transactionId, removeCallback
     }
     if not preview then
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
     if type(removeCallback) ~= "function" then
         result.reason = "remove_callback_required"
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
@@ -385,7 +424,7 @@ function PieceLifecycle:Demolish(pieceId, economy, transactionId, removeCallback
         result.reason = refundReason
         result.refund = cloneTable(preview.refund)
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
@@ -393,26 +432,41 @@ function PieceLifecycle:Demolish(pieceId, economy, transactionId, removeCallback
     if not removed then
         result.reason = unstableOrReason or "remove_failed"
         self.stats.rejected += 1
-        self:_remember(transactionId, result)
+        self:_remember(transactionId, transactionScope, result)
         return cloneTable(result)
     end
 
-    local refunded = deposit(economy, preview.refund)
-    result.ok = true
-    result.reason = refunded and nil or "refund_pending"
     result.grade = preview.grade
     result.refund = cloneTable(preview.refund)
-    result.refunded = refunded
     result.unstable = cloneTable(unstableOrReason or {})
+    result.removed = true
     self.stats.demolished += 1
-    self:_remember(transactionId, result)
+
+    if deposit(economy, preview.refund) then
+        result.ok = true
+        result.refunded = true
+        self:_remember(transactionId, transactionScope, result)
+    else
+        result.ok = false
+        result.reason = "refund_pending"
+        result.refunded = false
+        self.pendingRefunds[transactionId] = {
+            scope = transactionScope,
+            result = cloneTable(result),
+        }
+        self.stats.refundPending += 1
+    end
+
     return cloneTable(result)
 end
 
 function PieceLifecycle:GetStats()
+    local pending = 0
+    for _ in pairs(self.pendingRefunds) do pending += 1 end
     local result = {
         sequence = self.sequence,
         remembered = #self.order,
+        pendingRefunds = pending,
     }
     for key, value in pairs(self.stats) do result[key] = value end
     return result
