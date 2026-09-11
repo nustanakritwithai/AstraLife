@@ -39,7 +39,15 @@ function W0Verifier.Run()
 
     local query = EnvironmentQuery.new(grid)
     local affordances = query:GetAffordancesAt(grid:CellCenter(2, 2))
-    check(affordances.canDrink and affordances.canEat and affordances.canRest and affordances.canBuild, "environmentQuery", results)
+    check(
+        affordances.canDrink
+            and affordances.canEat
+            and affordances.canRest
+            and affordances.safe
+            and not affordances.canBuild,
+        "environmentQuery",
+        results
+    )
 
     local dirtyEntries = dirty:Drain(16)
     local snapshotA = WorldSnapshot.BuildDelta({ seed = 20904, tick = 4, simTime = 1 }, grid, dirtyEntries)
