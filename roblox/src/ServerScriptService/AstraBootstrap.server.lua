@@ -54,40 +54,26 @@ end
 
 local function ensureResources()
     if not Config.CreateDemoResources or #folders.resources:GetChildren() > 0 then return end
-
     local specs = {
-        {"Wood",  1, Vector3.new(-30, 1.2, 0)},
-        {"Wood",  2, Vector3.new(-24, 1.2, 10)},
-        {"Stone", 1, Vector3.new(-18, 1.2, -13)},
-        {"Stone", 2, Vector3.new(28, 1.2, 14)},
-        {"Food",  1, Vector3.new(8, 1.2, 28)},
-        {"Food",  2, Vector3.new(32, 1.2, -8)},
-        {"Water", 1, Vector3.new(-8, 1.2, 30)},
-        {"Water", 2, Vector3.new(20, 1.2, -28)},
+        {"Wood", 1, Vector3.new(-30, 1.2, 0)}, {"Wood", 2, Vector3.new(-24, 1.2, 10)},
+        {"Stone", 1, Vector3.new(-18, 1.2, -13)}, {"Stone", 2, Vector3.new(28, 1.2, 14)},
+        {"Food", 1, Vector3.new(8, 1.2, 28)}, {"Food", 2, Vector3.new(32, 1.2, -8)},
+        {"Water", 1, Vector3.new(-8, 1.2, 30)}, {"Water", 2, Vector3.new(20, 1.2, -28)},
     }
-
-    for _, spec in ipairs(specs) do
-        createResource(spec[2], spec[1], spec[3])
-    end
+    for _, spec in ipairs(specs) do createResource(spec[2], spec[1], spec[3]) end
 end
 
 local function roleColor(role)
-    if role == Config.Roles.Scout then
-        return Color3.fromRGB(75, 165, 255)
-    elseif role == Config.Roles.Gatherer then
-        return Color3.fromRGB(90, 220, 120)
-    elseif role == Config.Roles.Builder then
-        return Color3.fromRGB(255, 175, 70)
-    end
+    if role == Config.Roles.Scout then return Color3.fromRGB(75, 165, 255) end
+    if role == Config.Roles.Gatherer then return Color3.fromRGB(90, 220, 120) end
+    if role == Config.Roles.Builder then return Color3.fromRGB(255, 175, 70) end
     return Color3.fromRGB(200, 200, 210)
 end
 
 local function tintAgent(model, role)
     local color = roleColor(role)
     for _, obj in ipairs(model:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name ~= "HumanoidRootPart" then
-            obj.Color = color
-        end
+        if obj:IsA("BasePart") and obj.Name ~= "HumanoidRootPart" then obj.Color = color end
     end
 end
 
@@ -97,12 +83,7 @@ local function createR15Agent(name, role, position)
         return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
     end)
     description:Destroy()
-
-    if not ok or not model then
-        warn("[AstraBootstrap] Could not create R15 agent:", name)
-        return nil
-    end
-
+    if not ok or not model then warn("[AstraBootstrap] Could not create R15 agent:", name) return nil end
     model.Name = name
     model:SetAttribute("Role", role)
     model:SetAttribute("IsAstraAgent", true)
@@ -130,10 +111,7 @@ ensureBaseplate()
 ensureSpawn()
 Storage.FindOrCreate(folders, Config)
 
-if folders.state:GetAttribute("ColonyOrigin") == nil then
-    folders.state:SetAttribute("ColonyOrigin", Vector3.new(0, 0, 0))
-end
-
+if folders.state:GetAttribute("ColonyOrigin") == nil then folders.state:SetAttribute("ColonyOrigin", Vector3.new(0, 0, 0)) end
 folders.state:SetAttribute("Runtime", "Rojo")
 folders.state:SetAttribute("Version", Config.RuntimeVersion)
 folders.state:SetAttribute("P3_RequestMode", Config.P3RequestMode == true)
@@ -141,9 +119,10 @@ folders.state:SetAttribute("P1Status", "RUNNING")
 folders.state:SetAttribute("P2Status", "RUNNING")
 folders.state:SetAttribute("P3Status", "RUNNING")
 folders.state:SetAttribute("P4Status", "RUNNING")
+folders.state:SetAttribute("P5Status", "RUNNING")
 
 ensureResources()
 ensureAgents()
 seedSurvivalStock()
 
-print("[AstraLife] Roblox Rojo P4 Survival world bootstrapped")
+print("[AstraLife] Roblox Rojo P5 Living World bootstrapped")
