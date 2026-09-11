@@ -7,23 +7,17 @@ local WorldState = require(Astra.WorldState)
 local SharedKnowledge = require(Astra.SharedKnowledge)
 local P2Verifier = require(Astra.P2Verifier)
 local P3Verifier = require(Astra.P3Verifier)
+local P4Verifier = require(Astra.P4Verifier)
 
 local folders = WorldState.Ensure(Config)
 local started = setmetatable({}, { __mode = "k" })
 
 local function startAgent(agent)
-    if started[agent] or not agent:IsA("Model") then
-        return
-    end
-
+    if started[agent] or not agent:IsA("Model") then return end
     local humanoid = agent:FindFirstChildOfClass("Humanoid")
     local root = agent:FindFirstChild("HumanoidRootPart")
     local head = agent:FindFirstChild("Head")
-
-    if not humanoid or not root or not head then
-        return
-    end
-
+    if not humanoid or not root or not head then return end
     started[agent] = true
     Brain.Start(agent)
 end
@@ -37,7 +31,7 @@ folders.agents.ChildAdded:Connect(function(agent)
     startAgent(agent)
 end)
 
--- One authoritative colony clock. All TTL/knowledge expiry is based on this tick.
+-- One authoritative colony clock for TTL, needs and acceptance checks.
 task.spawn(function()
     while true do
         task.wait(Config.TickSeconds)
@@ -47,7 +41,8 @@ task.spawn(function()
         folders.state:SetAttribute("KnownResourceCount", SharedKnowledge.ActiveCount(tick))
         P2Verifier.Update(folders.state)
         P3Verifier.Update(folders.state)
+        P4Verifier.Update(folders.state)
     end
 end)
 
-print("[AstraLife] Agent service online - P3 Construction V2")
+print("[AstraLife] Agent service online - P4 Survival Needs")
