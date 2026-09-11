@@ -1,4 +1,5 @@
 local PathfindingService = game:GetService("PathfindingService")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(script.Parent.Config)
 local WorldState = require(script.Parent.WorldState)
@@ -13,6 +14,9 @@ local Storage = require(script.Parent.Storage)
 local Construction = require(script.Parent.Construction)
 local Planner = require(script.Parent.Planner)
 local Needs = require(script.Parent.Needs)
+local SurvivalBridgeService = require(
+    ServerScriptService:WaitForChild("AstraWorld"):WaitForChild("SurvivalBridgeService")
+)
 
 local Brain = {}
 local runningAgents = setmetatable({}, { __mode = "k" })
@@ -115,6 +119,32 @@ local function pathMove(state, position)
     end
     directMove(state, position, Config.WalkSpeed)
     return true
+end
+
+local function w6TransactionId(state, action, resourceType)
+    return string.format(
+        "w6:%s:%s:%s:%d",
+        tostring(action),
+        state.agent.Name,
+        tostring(resourceType or "none"),
+        state.localDecisionTick
+    )
+end
+
+local function w6Navigate(state, resourceType, message)
+    local nav = SurvivalBridgeService.Navigate(state.agent.Name, state.root.Position, resourceType, 14)
+    if nav.ok and nav.atSource then
+        return true, nav
+    end
+    if nav.ok and nav.nextPosition then
+        state.folders.state:SetAttribute("W6_AgentNavigationObserved", true)
+        debug(state.agent, "W6WorldTarget", resourceType)
+        think(state, message)
+        directMove(state, nav.nextPosition, Config.WalkSpeed)
+        return false, nav
+    end
+    debug(state.agent, "W6WorldTargetReason", nav.reason or "no_source")
+    return false, nav
 end
 
 local function deterministicExplorePosition(state)
@@ -286,6 +316,44 @@ local function selectGatherTarget(state, observations)
     return observations.resources[1]
 end
 
+local function gatherFromLivingWorld(state)
+    if state.role ~= Config.Roles.Gatherer or state.inventory:IsFull() then return false end
+    local resourceType = state.preferredResourceType
+    if resourceType == nil then resourceType = "Wood" end
+    if resourceType ~= "Food" and resourceType ~= "Wood" then return false end
+
+    local atSource, nav = w6Navigate(state, resourceType, "Living World → กำลังไปเก็บ " .. resourceType)
+    if not atSource then
+        return nav and nav.ok == true
+    end
+
+    local tx = SurvivalBridgeService.HarvestToInventory(
+        state.agent.Name,
+        state.inventory,
+        state.root.Position,
+        resourceType,
+        1,
+        w6TransactionId(state, "harvest", resourceType)
+    )
+    if tx.ok and not tx.duplicate then
+        updateInventoryDebug(state)
+        state.folders.state:SetAttribute("W6_WorldHarvestObserved", true)
+        state.folders.state:SetAttribute("P2_CarryObserved", true)
+        state.folders.state:SetAttribute("P2_LastCarriedType", resourceType)
+        debug(state.agent, "W6LastTransaction", tx.transactionId)
+        remember(state, "resource_carried", {
+            sourceType = "living_world",
+            resourceType = resourceType,
+            amount = tx.actual,
+            transactionId = tx.transactionId,
+            position = state.root.Position,
+        }, 0.95)
+        think(state, string.format("เก็บ %s จาก Living World %.1f หน่วย", resourceType, tx.actual))
+        return true
+    end
+    return false
+end
+
 -- Returns true when Build Site delivery owns this tick, including while walking to the site.
 local function deliverMaterials(state)
     if state.role ~= Config.Roles.Gatherer then return false end
@@ -346,6 +414,7 @@ local function depositResources(state)
         table.sort(summary)
         state.folders.state:SetAttribute("P2_DepositObserved", true)
         state.folders.state:SetAttribute("P2_LastDeposit", table.concat(summary, ","))
+        state.folders.state:SetAttribute("W6_WorldToColonyObserved", true)
         remember(state, "resource_deposited", {sourceType = "self_action", items = summary}, 0.9)
         think(state, "ฝากเข้าคลัง: " .. table.concat(summary, " "))
         return true
@@ -380,6 +449,7 @@ local function executeGather(state, observations)
         invalidateReport(state, report, "not_found_on_arrival", true)
         return
     end
+    if gatherFromLivingWorld(state) then return end
     executeExplore(state)
 end
 
@@ -400,11 +470,38 @@ local function executeEat(state)
         state.inventory:Remove("Food", 1) Needs.Eat(state.needs, Config) updateInventoryDebug(state)
         state.folders.state:SetAttribute("P4_EatObserved", true) remember(state, "ate_food", {source = "carried"}, 0.7) think(state, "กิน Food จากกระเป๋า") return
     end
-    if ResourceEconomy.Get(state.folders.state, "Food") <= 0 then think(state, "หิว แต่คลังไม่มี Food") pathMove(state, storagePosition(state)) return end
-    if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then think(state, "หิว → กลับคลังหาอาหาร") pathMove(state, storagePosition(state)) return end
-    if ResourceEconomy.Consume(state.folders.state, "Food", 1) > 0 then
-        Needs.Eat(state.needs, Config) state.folders.state:SetAttribute("P4_EatObserved", true)
-        remember(state, "ate_food", {source = "storage"}, 0.8) think(state, "กิน Food จากคลัง → Hunger ฟื้น")
+
+    if ResourceEconomy.Get(state.folders.state, "Food") > 0 then
+        if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then think(state, "หิว → กลับคลังหาอาหาร") pathMove(state, storagePosition(state)) return end
+        if ResourceEconomy.Consume(state.folders.state, "Food", 1) > 0 then
+            Needs.Eat(state.needs, Config) state.folders.state:SetAttribute("P4_EatObserved", true)
+            remember(state, "ate_food", {source = "storage"}, 0.8) think(state, "กิน Food จากคลัง → Hunger ฟื้น")
+        end
+        return
+    end
+
+    local atSource, nav = w6Navigate(state, "Food", "คลังไม่มี Food → ไปหาอาหารจาก Living World")
+    if not atSource then
+        if not (nav and nav.ok) then think(state, "หิว แต่ยังหา Food ที่เข้าถึงได้ไม่พบ") end
+        return
+    end
+
+    local tx = SurvivalBridgeService.TryEat(
+        state.agent.Name,
+        state.root.Position,
+        w6TransactionId(state, "eat", "Food")
+    )
+    if tx.ok and not tx.duplicate then
+        Needs.Eat(state.needs, Config)
+        state.folders.state:SetAttribute("P4_EatObserved", true)
+        state.folders.state:SetAttribute("W6_WorldEatObserved", true)
+        debug(state.agent, "W6LastTransaction", tx.transactionId)
+        remember(state, "ate_food", {
+            source = "living_world",
+            amount = tx.actual,
+            transactionId = tx.transactionId,
+        }, 0.95)
+        think(state, "กิน Food จาก Living World → Hunger ฟื้น")
     end
 end
 
@@ -413,11 +510,38 @@ local function executeDrink(state)
         state.inventory:Remove("Water", 1) Needs.Drink(state.needs, Config) updateInventoryDebug(state)
         state.folders.state:SetAttribute("P4_DrinkObserved", true) remember(state, "drank_water", {source = "carried"}, 0.7) think(state, "ดื่ม Water จากกระเป๋า") return
     end
-    if ResourceEconomy.Get(state.folders.state, "Water") <= 0 then think(state, "กระหาย แต่คลังไม่มี Water") pathMove(state, storagePosition(state)) return end
-    if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then think(state, "กระหาย → กลับคลังหาน้ำ") pathMove(state, storagePosition(state)) return end
-    if ResourceEconomy.Consume(state.folders.state, "Water", 1) > 0 then
-        Needs.Drink(state.needs, Config) state.folders.state:SetAttribute("P4_DrinkObserved", true)
-        remember(state, "drank_water", {source = "storage"}, 0.8) think(state, "ดื่ม Water จากคลัง → Thirst ฟื้น")
+
+    if ResourceEconomy.Get(state.folders.state, "Water") > 0 then
+        if (storagePosition(state) - state.root.Position).Magnitude > Config.SurvivalUseDistance then think(state, "กระหาย → กลับคลังหาน้ำ") pathMove(state, storagePosition(state)) return end
+        if ResourceEconomy.Consume(state.folders.state, "Water", 1) > 0 then
+            Needs.Drink(state.needs, Config) state.folders.state:SetAttribute("P4_DrinkObserved", true)
+            remember(state, "drank_water", {source = "storage"}, 0.8) think(state, "ดื่ม Water จากคลัง → Thirst ฟื้น")
+        end
+        return
+    end
+
+    local atSource, nav = w6Navigate(state, "Water", "คลังไม่มี Water → ไปหาแหล่งน้ำจาก Living World")
+    if not atSource then
+        if not (nav and nav.ok) then think(state, "กระหาย แต่ยังหาแหล่งน้ำที่ปลอดภัยไม่พบ") end
+        return
+    end
+
+    local tx = SurvivalBridgeService.TryDrink(
+        state.agent.Name,
+        state.root.Position,
+        w6TransactionId(state, "drink", "Water")
+    )
+    if tx.ok and not tx.duplicate then
+        Needs.Drink(state.needs, Config)
+        state.folders.state:SetAttribute("P4_DrinkObserved", true)
+        state.folders.state:SetAttribute("W6_WorldDrinkObserved", true)
+        debug(state.agent, "W6LastTransaction", tx.transactionId)
+        remember(state, "drank_water", {
+            source = tx.source,
+            amount = tx.actual,
+            transactionId = tx.transactionId,
+        }, 0.95)
+        think(state, "ดื่มน้ำจาก Living World → Thirst ฟื้น")
     end
 end
 
@@ -529,10 +653,11 @@ function Brain.Start(agent)
     debug(agent, "RuntimeVersion", Config.RuntimeVersion)
     debug(agent, "DuplicateMessagesDropped", 0)
     debug(agent, "ExpiredBeliefs", 0)
+    debug(agent, "W6BridgeEnabled", true)
     updateInventoryDebug(state)
     Needs.SyncAgent(agent, state.needs, Config)
     if role ~= Config.Roles.Gatherer then folders.state:SetAttribute("P1_RoleGuards", true) end
-    think(state, "AstraBrain P4 Survival online")
+    think(state, "AstraBrain P7 + W6 Living World bridge online")
     humanoid.Died:Connect(function() runningAgents[agent] = nil end)
 
     task.spawn(function()
