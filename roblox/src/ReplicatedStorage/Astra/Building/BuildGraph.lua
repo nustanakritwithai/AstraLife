@@ -4,6 +4,7 @@ local BuildGraph = {}
 BuildGraph.__index = BuildGraph
 
 local FLIP = CFrame.Angles(0, math.rad(180), 0)
+local IDENTITY = CFrame.new()
 local MODULUS = 4294967296
 
 local function acceptsKind(attachment, kind)
@@ -13,13 +14,6 @@ local function acceptsKind(attachment, kind)
     return false
 end
 
-local function findConnector(definition, name)
-    for _, connector in ipairs(definition.connectors or {}) do
-        if connector.name == name then return connector end
-    end
-    return nil
-end
-
 local function findAttachment(definition, name, kind)
     for _, attachment in ipairs(definition.attachments or {}) do
         if (not name or attachment.name == name) and acceptsKind(attachment, kind) then
@@ -27,6 +21,14 @@ local function findAttachment(definition, name, kind)
         end
     end
     return nil
+end
+
+local function snapRotation(attachment)
+    -- WallTop/Interior sockets already encode the intended facing direction.
+    if attachment.name == "WallTop" or attachment.name == "Interior" then
+        return IDENTITY
+    end
+    return FLIP
 end
 
 local function cframeText(cframe)
@@ -134,8 +136,12 @@ function BuildGraph:PreviewSnap(pieceType, parentId, parentSocketName, attachmen
     local attachment = findAttachment(definition, attachmentName, socket.kind)
     if not attachment then return nil, "incompatible_socket" end
 
-    local childCFrame = socket.worldCFrame * FLIP * attachment.localCFrame:Inverse()
-    local predictedStability = parent.stability * (definition.stabilityTransfer or 0)
+    local childCFrame = socket.worldCFrame
+        * snapRotation(attachment)
+        * attachment.localCFrame:Inverse()
+    local predictedStability = definition.grounded == true
+        and 1
+        or parent.stability * (definition.stabilityTransfer or 0)
 
     return {
         pieceType = pieceType,
@@ -146,6 +152,7 @@ function BuildGraph:PreviewSnap(pieceType, parentId, parentSocketName, attachmen
         predictedStability = predictedStability,
         minStability = definition.minStability or 0,
         size = definition.size,
+        grounded = definition.grounded == true,
     }, nil
 end
 
@@ -168,12 +175,14 @@ function BuildGraph:PlaceSnap(pieceType, parentId, parentSocketName, attachmentN
         return nil, "insufficient_stability"
     end
 
+    local definition = BuildPieceCatalog.Get(pieceType)
     local parent = self.pieces[parentId]
     local piece = self:_makePiece(pieceType, preview.cframe, metadata)
     piece.parentId = parentId
     piece.parentSocket = parentSocketName
     piece.attachmentName = preview.attachmentName
-    piece.stability = preview.predictedStability
+    piece.isGrounded = definition.grounded == true
+    piece.stability = piece.isGrounded and 1 or preview.predictedStability
 
     parent.sockets[parentSocketName].occupiedBy = piece.id
     parent.children[piece.id] = true
