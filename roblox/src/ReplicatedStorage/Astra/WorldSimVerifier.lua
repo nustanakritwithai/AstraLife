@@ -3,13 +3,14 @@ local WorldSimVerifier = {}
 local REQUIRED_FOLDERS = {
     "Market", "Labor", "Ecology", "Threats", "Settlement", "Relationships",
     "Territory", "Routes", "Organization", "Population", "Migration", "Governance",
-    "Recruitment", "Metrics", "Replay",
+    "Recruitment", "Zones", "Hydrology", "Situation", "IntentQueue", "DataHygiene",
+    "Metrics", "Replay",
 }
 
 local REQUIRED_AGENT_ATTRS = {
     "Trait_Bravery", "Trait_Greed", "Trait_Loyalty", "Trait_Ambition", "Trait_RiskTolerance", "Trait_Discipline",
     "DominantMotive", "InjurySeverity", "WorldMod_Work", "SimulationLOD", "OrganizationId", "LaborBestProfession",
-    "PsychologicalFear", "Morale", "MigrationPressure",
+    "PsychologicalFear", "Morale", "MigrationPressure", "WorldZone", "WaterAccess", "WorldIntentOrder",
 }
 
 function WorldSimVerifier.Update(folders, simRoot)
@@ -18,6 +19,7 @@ function WorldSimVerifier.Update(folders, simRoot)
     if (simRoot:GetAttribute("LastProcessedTick") or -1) < 0 then table.insert(failures, "tick") end
     local fingerprint = simRoot:GetAttribute("LastFingerprint")
     if type(fingerprint) ~= "string" or fingerprint == "" then table.insert(failures, "fingerprint") end
+    if (simRoot:GetAttribute("LastSerializedBytes") or 0) <= 0 then table.insert(failures, "serialization") end
 
     for _, name in ipairs(REQUIRED_FOLDERS) do
         if not simRoot:FindFirstChild(name) then table.insert(failures, "folder:" .. name) end
@@ -45,6 +47,16 @@ function WorldSimVerifier.Update(folders, simRoot)
     if governance and governance:GetAttribute("Legitimacy") == nil then table.insert(failures, "governance") end
     local recruitment = simRoot:FindFirstChild("Recruitment")
     if recruitment and recruitment:GetAttribute("HighestNeedRole") == nil then table.insert(failures, "recruitment") end
+    local zones = simRoot:FindFirstChild("Zones")
+    if zones and zones:GetAttribute("SafeAgentCount") == nil then table.insert(failures, "zones") end
+    local hydrology = simRoot:FindFirstChild("Hydrology")
+    if hydrology and hydrology:GetAttribute("DroughtPressure") == nil then table.insert(failures, "hydrology") end
+    local situation = simRoot:FindFirstChild("Situation")
+    if situation and situation:GetAttribute("Situation") == nil then table.insert(failures, "situation") end
+    local intentQueue = simRoot:FindFirstChild("IntentQueue")
+    if intentQueue and intentQueue:GetAttribute("IntentCount") == nil then table.insert(failures, "intent_queue") end
+    local hygiene = simRoot:FindFirstChild("DataHygiene")
+    if hygiene and hygiene:GetAttribute("Status") == nil then table.insert(failures, "data_hygiene") end
     local replay = simRoot:FindFirstChild("Replay")
     if replay and (replay:GetAttribute("HistoryCount") or 0) < 1 then table.insert(failures, "replay") end
 
