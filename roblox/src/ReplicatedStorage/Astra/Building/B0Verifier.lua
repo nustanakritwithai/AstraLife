@@ -47,23 +47,40 @@ function B0Verifier.Run()
     check(
         preview ~= nil
             and near(preview.cframe.Position.Z, 12)
-            and preview.predictedStability >= preview.minStability,
+            and preview.predictedStability == 1,
         "foundationSnapTransform",
         results
     )
 
     local adjacent = graphA:PlaceSnap("FoundationSquare", root.id, "FoundationSouth", "Edge")
-    check(adjacent ~= nil and adjacent.parentId == root.id, "foundationExpansion", results)
+    check(
+        adjacent ~= nil
+            and adjacent.parentId == root.id
+            and adjacent.isGrounded
+            and adjacent.stability == 1,
+        "foundationExpansion",
+        results
+    )
 
     local duplicate, duplicateReason = graphA:PlaceSnap("FoundationSquare", root.id, "FoundationSouth", "Edge")
     check(duplicate == nil and duplicateReason == "socket_occupied", "socketOccupancy", results)
 
-    local wall = graphA:PlaceSnap("Wall", root.id, "WallEast", "Bottom")
+    local wall = graphA:PlaceSnap("Wall", root.id, "WallSouth", "Bottom")
     check(
         wall ~= nil
             and wall.stability > 0
             and wall.stability < root.stability,
         "wallSupportPropagation",
+        results
+    )
+
+    local floor = graphA:PlaceSnap("FloorSquare", wall.id, "Top", "WallTop")
+    check(
+        floor ~= nil
+            and near(floor.cframe.Position.Z, 0)
+            and near(floor.cframe.Position.Y, 8.5)
+            and floor.stability < wall.stability,
+        "wallTopSnapFacesInward",
         results
     )
 
@@ -75,7 +92,8 @@ function B0Verifier.Run()
     local graphB = BuildGraph.new()
     local rootB = graphB:PlaceRoot("FoundationSquare", rootCFrame)
     graphB:PlaceSnap("FoundationSquare", rootB.id, "FoundationSouth", "Edge")
-    graphB:PlaceSnap("Wall", rootB.id, "WallEast", "Bottom")
+    local wallB = graphB:PlaceSnap("Wall", rootB.id, "WallSouth", "Bottom")
+    graphB:PlaceSnap("FloorSquare", wallB.id, "Top", "WallTop")
     local fingerprintB = graphB:Fingerprint()
     check(fingerprintA == fingerprintB, "deterministicFingerprint", results)
 
@@ -84,9 +102,16 @@ function B0Verifier.Run()
     for _, id in ipairs(unstable or {}) do unstableSet[id] = true end
     check(
         removed ~= nil
-            and unstableSet[adjacent.id] == true
-            and unstableSet[wall.id] == true,
-        "supportRemovalInvalidatesChildren",
+            and graphA:Get(adjacent.id) ~= nil
+            and graphA:Get(adjacent.id).stability == 1,
+        "groundedExpansionSurvivesSupportRemoval",
+        results
+    )
+    check(
+        unstableSet[wall.id] == true
+            and unstableSet[floor.id] == true
+            and unstableSet[adjacent.id] ~= true,
+        "supportRemovalInvalidatesUnsupportedChain",
         results
     )
 
