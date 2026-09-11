@@ -19,6 +19,7 @@ local Snapshot = require(Astra.WorldSimSnapshot)
 local Replay = require(Astra.WorldSimReplay)
 local Metrics = require(Astra.WorldSimMetrics)
 local PersonalHistory = require(Astra.WorldSimPersonalHistory)
+local Verifier = require(Astra.WorldSimVerifier)
 
 local folders = WorldState.Ensure(Config)
 
@@ -128,6 +129,7 @@ local function processTick(tick)
 
     folders.state:SetAttribute("WorldSimStatus", "ONLINE")
     folders.state:SetAttribute("WorldSimFingerprint", snapshot.fingerprint)
+    Verifier.Update(folders, simRoot)
 end
 
 local function scheduleCurrentTick()
@@ -137,6 +139,7 @@ local function scheduleCurrentTick()
         if not ok then
             simRoot:SetAttribute("Status", "ERROR")
             simRoot:SetAttribute("LastError", tostring(err))
+            folders.state:SetAttribute("WorldSimCoreStatus", "ERROR")
             warn("[AstraWorldSim]", err)
         else
             simRoot:SetAttribute("LastError", "")
