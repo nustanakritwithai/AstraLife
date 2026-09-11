@@ -14,24 +14,38 @@ local function boolText(value)
     return value and "1" or "0"
 end
 
+local function tagsText(tags)
+    local copy = {}
+    for index, value in ipairs(tags or {}) do
+        copy[index] = tostring(value)
+    end
+    table.sort(copy)
+    return table.concat(copy, ",")
+end
+
 local function cellCanonical(cell)
     return table.concat({
-        tostring(cell.x), tostring(cell.z), tostring(cell.biome),
+        tostring(cell.x), tostring(cell.z), tostring(cell.biome), tostring(cell.terrainType or ""),
+        string.format("%.4f", cell.elevation or 0),
         string.format("%.4f", cell.height or 0),
+        string.format("%.4f", cell.slope or 0),
         string.format("%.4f", cell.water or 0),
         string.format("%.4f", cell.moisture or 0),
         string.format("%.4f", cell.temperature or 0),
+        string.format("%.4f", cell.fertility or 0),
+        string.format("%.4f", cell.waterPotential or 0),
         string.format("%.4f", cell.vegetation or 0),
         string.format("%.4f", cell.food or 0),
         string.format("%.4f", cell.danger or 0),
         boolText(cell.walkable == true),
+        tagsText(cell.terrainTags),
         tostring(cell.version or 0),
     }, "|")
 end
 
 function WorldSnapshot.BuildDelta(meta, grid, dirtyEntries)
     local snapshot = {
-        version = "W0",
+        version = meta.version or "W0",
         seed = meta.seed,
         tick = meta.tick,
         simTime = meta.simTime,
