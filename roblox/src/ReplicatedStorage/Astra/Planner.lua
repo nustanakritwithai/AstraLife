@@ -21,10 +21,28 @@ local function colonyHasNeed(agentsFolder, attribute)
     return false
 end
 
+local function environmentGoal(state, config)
+    local worldState = state.folders.state
+    local weather = worldState:GetAttribute("Weather") or "Clear"
+    local isNight = worldState:GetAttribute("IsNight") == true
+
+    if weather == "Storm" and config.EnvironmentShelterInStorm then
+        worldState:SetAttribute("P5_EnvironmentResponse", true)
+        return "Rest", 116
+    end
+
+    if isNight and config.EnvironmentShelterAtNight and state.needs.energy < 85 then
+        worldState:SetAttribute("P5_EnvironmentResponse", true)
+        return "Rest", 91
+    end
+
+    return nil, 0
+end
+
 function Planner.ChooseGoal(state, observations, construction, resourceEconomy, config)
     state.preferredResourceType = nil
 
-    -- Survival always outranks work.
+    -- Immediate danger and critical survival always outrank the environment.
     if #observations.threats > 0 then
         return "Flee", 130
     end
@@ -55,6 +73,11 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
         return "Rest", 100
     end
 
+    local environmentGoalName, environmentScore = environmentGoal(state, config)
+    if environmentGoalName then
+        return environmentGoalName, environmentScore
+    end
+
     if state.needs.social <= config.SocialLow then
         return "Socialize", 78
     end
@@ -68,7 +91,6 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
             end
         end
 
-        -- Colony survival demands outrank generic construction supply.
         if colonyHasNeed(state.folders.agents, "NeedWater")
             and resourceEconomy.Get(state.folders.state, "Water") < config.SurvivalStockTargetWater
         then
@@ -111,7 +133,6 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
             return "BuildStructure", 95
         end
 
-        -- P3 request-driven construction: create a site before materials exist.
         if construction.GetNextBlueprint(state.folders, config) then
             return "BuildStructure", 88
         end
