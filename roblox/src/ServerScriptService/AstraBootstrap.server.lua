@@ -4,8 +4,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Astra = ReplicatedStorage:WaitForChild("Astra")
 local Config = require(Astra.Config)
 local WorldState = require(Astra.WorldState)
+local ResourceEconomy = require(Astra.ResourceEconomy)
+local Storage = require(Astra.Storage)
 
-local folders = WorldState.Ensure()
+local folders = WorldState.Ensure(Config)
+ResourceEconomy.Ensure(folders.state, Config.StorageCapacity)
 
 local function ensureBaseplate()
     if workspace:FindFirstChild("AstraBaseplate") then
@@ -36,19 +39,21 @@ local function ensureSpawn()
     spawn.Parent = workspace
 end
 
-local function createResource(index, position)
+local function createResource(index, resourceType, position)
+    local descriptor = Config.ResourceTypes[resourceType]
     local resource = Instance.new("Part")
-    resource.Name = string.format("Resource%02d", index)
+    resource.Name = string.format("%s_%02d", resourceType, index)
     resource.Shape = Enum.PartType.Ball
     resource.Size = Vector3.new(2, 2, 2)
     resource.Position = position
     resource.Anchored = true
     resource.CanCollide = false
     resource.CanTouch = false
-    resource.Material = Enum.Material.Neon
-    resource.Color = Color3.fromRGB(70, 255, 120)
+    resource.Material = descriptor.material
+    resource.Color = descriptor.color
     resource:SetAttribute("Active", true)
-    resource:SetAttribute("Amount", 1)
+    resource:SetAttribute("Amount", descriptor.yield or 1)
+    resource:SetAttribute("ResourceType", resourceType)
     resource.Parent = folders.resources
     return resource
 end
@@ -58,24 +63,22 @@ local function ensureResources()
         return
     end
 
-    local origin = folders.state:GetAttribute("ColonyOrigin")
-    if typeof(origin) ~= "Vector3" then
-        origin = Vector3.new(0, 0, 0)
-    end
-
-    local offsets = {
-        Vector3.new(16, 1.2, 8),
-        Vector3.new(-14, 1.2, 18),
-        Vector3.new(24, 1.2, -15),
-        Vector3.new(-22, 1.2, -12),
-        Vector3.new(5, 1.2, 30),
-        Vector3.new(-30, 1.2, 6),
-        Vector3.new(32, 1.2, 15),
-        Vector3.new(10, 1.2, -32),
+    -- P1/P2 deterministic acceptance layout:
+    -- Scout starts at -20 X, Gatherer at +10 X.
+    -- Wood_01 is visible to Scout (10 studs) but outside Gatherer ResourceRange (40 studs).
+    local specs = {
+        {"Wood",  1, Vector3.new(-30, 1.2, 0)},
+        {"Wood",  2, Vector3.new(-24, 1.2, 10)},
+        {"Stone", 1, Vector3.new(-18, 1.2, -13)},
+        {"Stone", 2, Vector3.new(28, 1.2, 14)},
+        {"Food",  1, Vector3.new(8, 1.2, 28)},
+        {"Food",  2, Vector3.new(32, 1.2, -8)},
+        {"Water", 1, Vector3.new(-8, 1.2, 30)},
+        {"Water", 2, Vector3.new(20, 1.2, -28)},
     }
 
-    for i = 1, math.min(Config.DemoResourceCount, #offsets) do
-        createResource(i, origin + offsets[i])
+    for _, spec in ipairs(specs) do
+        createResource(spec[2], spec[1], spec[3])
     end
 end
 
@@ -101,14 +104,9 @@ end
 
 local function createR15Agent(name, role, position)
     local description = Instance.new("HumanoidDescription")
-
     local ok, model = pcall(function()
-        return Players:CreateHumanoidModelFromDescription(
-            description,
-            Enum.HumanoidRigType.R15
-        )
+        return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
     end)
-
     description:Destroy()
 
     if not ok or not model then
@@ -122,7 +120,6 @@ local function createR15Agent(name, role, position)
     model.Parent = folders.agents
     model:PivotTo(CFrame.new(position))
     tintAgent(model, role)
-
     return model
 end
 
@@ -131,22 +128,25 @@ local function ensureAgents()
         return
     end
 
-    createR15Agent("AstraScout", Config.Roles.Scout, Vector3.new(-7, 3, 0))
-    createR15Agent("AstraGatherer", Config.Roles.Gatherer, Vector3.new(0, 3, 0))
-    createR15Agent("AstraBuilder", Config.Roles.Builder, Vector3.new(7, 3, 0))
+    createR15Agent("AstraScout", Config.Roles.Scout, Vector3.new(-20, 3, 0))
+    createR15Agent("AstraGatherer", Config.Roles.Gatherer, Vector3.new(10, 3, 0))
+    createR15Agent("AstraBuilder", Config.Roles.Builder, Vector3.new(2, 3, 8))
 end
 
 ensureBaseplate()
 ensureSpawn()
+Storage.FindOrCreate(folders, Config)
 
 if folders.state:GetAttribute("ColonyOrigin") == nil then
     folders.state:SetAttribute("ColonyOrigin", Vector3.new(0, 0, 0))
 end
 
 folders.state:SetAttribute("Runtime", "Rojo")
-folders.state:SetAttribute("Version", "0.1.0-rojo")
+folders.state:SetAttribute("Version", Config.RuntimeVersion)
+folders.state:SetAttribute("P1Status", "RUNNING")
+folders.state:SetAttribute("P2Status", "RUNNING")
 
 ensureResources()
 ensureAgents()
 
-print("[AstraLife] Roblox Rojo world bootstrapped")
+print("[AstraLife] Roblox Rojo P2 world bootstrapped")
