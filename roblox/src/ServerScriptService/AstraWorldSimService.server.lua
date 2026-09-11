@@ -19,6 +19,10 @@ local Routes = require(Astra.WorldSimRoutes)
 local Organization = require(Astra.WorldSimOrganization)
 local LOD = require(Astra.WorldSimLOD)
 local Population = require(Astra.WorldSimPopulation)
+local Psychology = require(Astra.WorldSimPsychology)
+local Migration = require(Astra.WorldSimMigration)
+local Governance = require(Astra.WorldSimGovernance)
+local Recruitment = require(Astra.WorldSimRecruitment)
 local Snapshot = require(Astra.WorldSimSnapshot)
 local Replay = require(Astra.WorldSimReplay)
 local Metrics = require(Astra.WorldSimMetrics)
@@ -47,11 +51,14 @@ local territoryFolder = ensureFolder(simRoot, "Territory")
 local routesFolder = ensureFolder(simRoot, "Routes")
 local organizationFolder = ensureFolder(simRoot, "Organization")
 local populationFolder = ensureFolder(simRoot, "Population")
+local migrationFolder = ensureFolder(simRoot, "Migration")
+local governanceFolder = ensureFolder(simRoot, "Governance")
+local recruitmentFolder = ensureFolder(simRoot, "Recruitment")
 local metricsFolder = ensureFolder(simRoot, "Metrics")
 local replayFolder = ensureFolder(simRoot, "Replay")
 
 if simRoot:GetAttribute("Seed") == nil then simRoot:SetAttribute("Seed", 20904) end
-simRoot:SetAttribute("Version", "WorldSimCorePack-0.2")
+simRoot:SetAttribute("Version", "WorldSimCorePack-0.3")
 simRoot:SetAttribute("Authority", "observer-of-authoritative-world-tick")
 simRoot:SetAttribute("OwnsWorldTick", false)
 Metrics.Ensure(metricsFolder)
@@ -118,6 +125,22 @@ local function processTick(tick)
     LOD.UpdateAll(folders.agents, metricsFolder)
     local population = Population.Update(folders.agents, populationFolder, 32)
 
+    local fearTotal, stressTotal, moraleTotal, psychologyCount = 0, 0, 0, 0
+    for _, agent in ipairs(sortedAgents()) do
+        local psychology = Psychology.Update(agent, threatsFolder, settlementFolder)
+        fearTotal += psychology.fear
+        stressTotal += psychology.stress
+        moraleTotal += psychology.morale
+        psychologyCount += 1
+    end
+    local psychDivisor = math.max(1, psychologyCount)
+    local migration = Migration.Update(folders.agents, marketFolder, settlementFolder, threatsFolder, territoryFolder, 32)
+    local governance = Governance.Update(settlementFolder, organizationFolder, threatsFolder, governanceFolder)
+    local recruitment = Recruitment.Update(populationFolder, settlementFolder, threatsFolder, laborFolder, recruitmentFolder)
+
+    migrationFolder:SetAttribute("AveragePressure", math.floor((migration.averagePressure or 0) * 1000 + 0.5) / 10)
+    migrationFolder:SetAttribute("CandidateCount", migration.candidateCount or 0)
+
     local snapshot = Snapshot.Capture(folders, 32)
     local changed = Replay.Record(snapshot, replayFolder)
     Metrics.RecordSnapshot(metricsFolder, changed)
@@ -135,6 +158,12 @@ local function processTick(tick)
     Metrics.Gauge(metricsFolder, "PopulationTotal", population.total or 0)
     Metrics.Gauge(metricsFolder, "SettlementStability", settlement.Stability)
     Metrics.Gauge(metricsFolder, "SettlementProsperity", settlement.Prosperity)
+    Metrics.Gauge(metricsFolder, "AverageFear", math.floor((fearTotal / psychDivisor) * 1000 + 0.5) / 10)
+    Metrics.Gauge(metricsFolder, "AverageStress", math.floor((stressTotal / psychDivisor) * 1000 + 0.5) / 10)
+    Metrics.Gauge(metricsFolder, "AverageMorale", math.floor((moraleTotal / psychDivisor) * 1000 + 0.5) / 10)
+    Metrics.Gauge(metricsFolder, "MigrationCandidateCount", migration.candidateCount or 0)
+    Metrics.Gauge(metricsFolder, "GovernanceLegitimacy", math.floor((governance.legitimacy or 0) * 1000 + 0.5) / 10)
+    Metrics.Gauge(metricsFolder, "RecruitmentUrgency", math.floor((recruitment.urgency or 0) * 1000 + 0.5) / 10)
 
     simRoot:SetAttribute("LastProcessedTick", tick)
     simRoot:SetAttribute("LastFingerprint", snapshot.fingerprint)
