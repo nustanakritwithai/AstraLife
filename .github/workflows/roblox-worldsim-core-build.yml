@@ -1,0 +1,42 @@
+name: Build AstraLife WorldSim Core
+
+on:
+  push:
+    branches:
+      - feat/roblox-worldsim-core-pack
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-worldsim-core-build.yml"
+  pull_request:
+    branches:
+      - feat/roblox-p4-survival-needs
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-worldsim-core-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+
+      - name: Build Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-WorldSim-Core.rbxl
+
+      - name: Upload playable place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-WorldSim-Core-Place
+          path: AstraLife-WorldSim-Core.rbxl
+          if-no-files-found: error
+          retention-days: 14
