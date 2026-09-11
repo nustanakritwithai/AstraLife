@@ -3,6 +3,7 @@ local ResourceEconomy = require(script.Parent.ResourceEconomy)
 local Construction = {}
 
 local activeBuild = nil
+local RESOURCE_TYPES = {"Wood", "Stone", "Food", "Water"}
 
 local function recipeText(recipe)
     local parts = {}
@@ -47,6 +48,84 @@ local function createStructurePart(blueprint, position)
     return part
 end
 
+local function createSiteMarker(blueprint, position, config)
+    local marker = Instance.new("Part")
+    marker.Name = "BuildSite_" .. blueprint.id
+    marker.Size = Vector3.new(8, 0.5, 8)
+    marker.Position = position - Vector3.new(0, 1.25, 0)
+    marker.Anchored = true
+    marker.CanCollide = false
+    marker.Material = Enum.Material.ForceField
+    marker.Color = Color3.fromRGB(255, 190, 70)
+    marker.Transparency = config.BuildSiteMarkerTransparency or 0.55
+    marker:SetAttribute("IsBuildSite", true)
+    marker:SetAttribute("BlueprintId", blueprint.id)
+
+    local gui = Instance.new("BillboardGui")
+    gui.Name = "BuildSiteGui"
+    gui.Size = UDim2.fromOffset(240, 70)
+    gui.StudsOffset = Vector3.new(0, 3.5, 0)
+    gui.AlwaysOnTop = true
+    gui.Parent = marker
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Status"
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundColor3 = Color3.fromRGB(30, 25, 18)
+    label.BackgroundTransparency = 0.2
+    label.TextColor3 = Color3.fromRGB(255, 235, 190)
+    label.TextWrapped = true
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Text = blueprint.displayName .. "\nWaiting for materials"
+    label.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = label
+
+    return marker, label
+end
+
+local function resetMaterialLedger(worldState, recipe)
+    local totalRequired = 0
+    for _, resourceType in ipairs(RESOURCE_TYPES) do
+        local required = (recipe and recipe[resourceType]) or 0
+        worldState:SetAttribute("P3_Required_" .. resourceType, required)
+        worldState:SetAttribute("P3_Delivered_" .. resourceType, 0)
+        totalRequired += required
+    end
+    worldState:SetAttribute("BuildRequired", totalRequired)
+    worldState:SetAttribute("P3_MaterialsReady", totalRequired == 0)
+end
+
+local function missingText(worldState)
+    local parts = {}
+    for _, resourceType in ipairs(RESOURCE_TYPES) do
+        local missing = ResourceEconomy.GetBuildMissing(worldState, resourceType)
+        if missing > 0 then
+            table.insert(parts, resourceType .. " " .. tostring(missing))
+        end
+    end
+    if #parts == 0 then
+        return "materials ready"
+    end
+    return table.concat(parts, " / ")
+end
+
+local function updateSiteLabel(active, worldState)
+    if not active or not active.statusLabel or not active.statusLabel.Parent then
+        return
+    end
+
+    if ResourceEconomy.BuildSiteReady(worldState) then
+        local progress = worldState:GetAttribute("BuildProgress") or 0
+        active.statusLabel.Text = string.format("%s\nMaterials ready • Build %d%%", active.blueprint.displayName, progress)
+    else
+        active.statusLabel.Text = string.format("%s\nNeed: %s", active.blueprint.displayName, missingText(worldState))
+    end
+end
+
 function Construction.GetNextBlueprint(folders, config)
     for _, blueprint in ipairs(config.Blueprints) do
         if not folders.structures:FindFirstChild(blueprint.id) then
@@ -70,31 +149,38 @@ function Construction.TryStart(builder, folders, config, tick)
         return nil, "complete"
     end
 
-    if not ResourceEconomy.CanAfford(folders.state, blueprint.recipe) then
-        return nil, "insufficient_resources"
-    end
+    local position = buildPosition(config, blueprint)
+    local marker, statusLabel = createSiteMarker(blueprint, position, config)
+    marker.Parent = folders.structures
 
-    if not ResourceEconomy.Spend(folders.state, blueprint.recipe) then
-        return nil, "spend_failed"
-    end
+    local buildId = string.format("%s:%d", blueprint.id, tick)
 
-    folders.state:SetAttribute("P2_BuilderSpentRecipe", true)
-    folders.state:SetAttribute("LastBuildRecipe", recipeText(blueprint.recipe))
+    resetMaterialLedger(folders.state, blueprint.recipe)
 
     activeBuild = {
+        id = buildId,
         blueprint = blueprint,
-        position = buildPosition(config, blueprint),
+        position = position,
         progress = 0,
         startedTick = tick,
         worker = builder.Name,
+        marker = marker,
+        statusLabel = statusLabel,
     }
 
     folders.state:SetAttribute("ActiveBuildId", blueprint.id)
-    folders.state:SetAttribute("BuildStatus", "Building")
+    folders.state:SetAttribute("P3_BuildId", buildId)
+    folders.state:SetAttribute("P3_BuildSitePosition", position)
+    folders.state:SetAttribute("P3_Recipe", recipeText(blueprint.recipe))
+    folders.state:SetAttribute("P3_SiteCreated", true)
+    folders.state:SetAttribute("P3_MaterialsRequested", true)
+    folders.state:SetAttribute("BuildStatus", "AwaitingMaterials")
     folders.state:SetAttribute("BuildProgress", 0)
     folders.state:SetAttribute("ActiveBuildWorker", builder.Name)
 
-    return activeBuild, "started"
+    updateSiteLabel(activeBuild, folders.state)
+
+    return activeBuild, "site_created"
 end
 
 function Construction.Step(builder, folders, config, tick)
@@ -113,9 +199,21 @@ function Construction.Step(builder, folders, config, tick)
         return false, "too_far", active.position
     end
 
+    if not ResourceEconomy.BuildSiteReady(folders.state) then
+        folders.state:SetAttribute("BuildStatus", "AwaitingMaterials")
+        folders.state:SetAttribute("P3_BuilderWaited", true)
+        updateSiteLabel(active, folders.state)
+        return false, "awaiting_materials", missingText(folders.state)
+    end
+
+    folders.state:SetAttribute("BuildStatus", "Building")
+    folders.state:SetAttribute("P2_BuilderSpentRecipe", true)
+
     active.progress += 1
     local percent = math.clamp(math.floor((active.progress / active.blueprint.buildSteps) * 100), 0, 100)
     folders.state:SetAttribute("BuildProgress", percent)
+    folders.state:SetAttribute("P3_BuildProgress", true)
+    updateSiteLabel(active, folders.state)
 
     if active.progress < active.blueprint.buildSteps then
         return true, "progress", percent
@@ -124,12 +222,21 @@ function Construction.Step(builder, folders, config, tick)
     local structure = createStructurePart(active.blueprint, active.position)
     structure:SetAttribute("CompletedBy", builder.Name)
     structure:SetAttribute("CompletedTick", tick)
+    structure:SetAttribute("P3MaterialsDelivered", true)
     structure.Parent = folders.structures
+
+    if active.marker and active.marker.Parent then
+        active.marker:Destroy()
+    end
 
     folders.state:SetAttribute("BuildStatus", "Idle")
     folders.state:SetAttribute("BuildProgress", 100)
     folders.state:SetAttribute("ActiveBuildId", "None")
     folders.state:SetAttribute("ActiveBuildWorker", "None")
+    folders.state:SetAttribute("P3_BuildCompleted", true)
+    folders.state:SetAttribute("P3_LastCompletedBlueprint", active.blueprint.id)
+    folders.state:SetAttribute("P3_LastBuildMaterialsReady", true)
+    folders.state:SetAttribute("P3_MaterialsReady", false)
 
     local completed = active
     activeBuild = nil
