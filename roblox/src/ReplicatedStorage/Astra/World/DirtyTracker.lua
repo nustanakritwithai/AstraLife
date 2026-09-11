@@ -5,6 +5,7 @@ function DirtyTracker.new()
     return setmetatable({
         _queue = {},
         _head = 1,
+        _tail = 0,
         _dirty = {},
         _versions = {},
         _count = 0,
@@ -20,7 +21,8 @@ function DirtyTracker:Mark(key)
 
     self._dirty[key] = true
     self._count += 1
-    table.insert(self._queue, key)
+    self._tail += 1
+    self._queue[self._tail] = key
     return self._versions[key]
 end
 
@@ -46,12 +48,12 @@ function DirtyTracker:Drain(maxItems)
     maxItems = maxItems or math.huge
     local result = {}
 
-    while self._head <= #self._queue and #result < maxItems do
+    while self._head <= self._tail and #result < maxItems do
         local key = self._queue[self._head]
         self._queue[self._head] = nil
         self._head += 1
 
-        if self._dirty[key] then
+        if key and self._dirty[key] then
             self._dirty[key] = nil
             self._count -= 1
             table.insert(result, {
@@ -61,9 +63,10 @@ function DirtyTracker:Drain(maxItems)
         end
     end
 
-    if self._head > #self._queue then
+    if self._head > self._tail then
         self._queue = {}
         self._head = 1
+        self._tail = 0
     end
 
     return result
@@ -72,6 +75,7 @@ end
 function DirtyTracker:Clear()
     self._queue = {}
     self._head = 1
+    self._tail = 0
     self._dirty = {}
     self._count = 0
 end
