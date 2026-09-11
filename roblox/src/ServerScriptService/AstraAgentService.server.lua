@@ -1,7 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Astra = ReplicatedStorage:WaitForChild("Astra")
-local Brain = require(Astra.Brain)
+local Brain = require(Astra.BrainIntegrated)
 local Config = require(Astra.Config)
 local WorldState = require(Astra.WorldState)
 local SharedKnowledge = require(Astra.SharedKnowledge)
@@ -24,8 +24,6 @@ local folders = WorldState.Ensure(Config)
 local started = setmetatable({}, { __mode = "k" })
 local scheduled = setmetatable({}, { __mode = "k" })
 
--- Single W0→W7 composition entry point. EcosystemService recursively starts
--- W6→W0 in dependency order before any Agent decision loop is scheduled.
 local livingWorld = EcosystemService.Start()
 local livingState = livingWorld.runtime.state
 livingState:SetAttribute("W7AgentIntegrated", true)
@@ -113,8 +111,6 @@ local function updateIntegrationStatus()
     folders.state:SetAttribute("P75W7IntegrationStatus", (pPass and wPass and scalePass) and "PASS" or "RUNNING")
 end
 
--- P0-P7.5 colony authority now advances from the W0 fixed-step clock.
--- 8 Living World ticks × 0.25s = the legacy 2s colony cadence.
 livingWorld.runtime.clock:RegisterSystem("P75.ColonyAuthority", Config.LivingWorldDecisionTicks or 8, function()
     local tick = WorldState.NextTick(Config)
 
