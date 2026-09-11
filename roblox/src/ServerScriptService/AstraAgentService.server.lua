@@ -16,6 +16,7 @@ local P5Verifier = require(Astra.P5Verifier)
 local P6Verifier = require(Astra.P6Verifier)
 local P7Verifier = require(Astra.P7Verifier)
 local ScaleVerifier = require(Astra.ScaleVerifier)
+local IntegrationVerifier = require(Astra.IntegrationVerifier)
 
 local EcosystemService = require(script.Parent.AstraWorld.EcosystemService)
 local SurvivalBridgeService = require(script.Parent.AstraWorld.SurvivalBridgeService)
@@ -91,24 +92,23 @@ local function safeStep(name, callback)
     end
 end
 
-local function allPass(state, names)
-    for _, name in ipairs(names) do
-        if state:GetAttribute(name) ~= "PASS" then return false end
-    end
-    return true
-end
+-- I0.3: composed-runtime status from live evidence, not startup verifier PASS.
+local integrationVerifier = IntegrationVerifier.new()
 
 local function updateIntegrationStatus()
-    if folders.state:GetAttribute("ScaleRuntimeError") == true then
-        folders.state:SetAttribute("P75W7IntegrationStatus", "ERROR")
-        return
+    local status, evidence = integrationVerifier:Update(
+        livingState, folders.state, Config, livingWorld.runtime.clock.tick
+    )
+    folders.state:SetAttribute("P75W7IntegrationStatus", status)
+
+    local failing = {}
+    for name, value in pairs(evidence) do
+        if type(value) == "boolean" then
+            folders.state:SetAttribute("I0_" .. name, value)
+            if not value then table.insert(failing, name) end
+        end
     end
-
-    local pPass = allPass(folders.state, {"P1Status", "P2Status", "P3Status", "P4Status", "P5Status", "P6Status", "P7Status"})
-    local wPass = allPass(livingState, {"W0Status", "W1Status", "W2Status", "W3Status", "W4Status", "W5Status", "W6Status", "W7Status"})
-    local scalePass = folders.state:GetAttribute("Scale12Status") == "PASS"
-
-    folders.state:SetAttribute("P75W7IntegrationStatus", (pPass and wPass and scalePass) and "PASS" or "RUNNING")
+    folders.state:SetAttribute("I0_FailingEvidence", #failing > 0 and table.concat(failing, ",") or "none")
 end
 
 livingWorld.runtime.clock:RegisterSystem("P75.ColonyAuthority", Config.LivingWorldDecisionTicks or 8, function()

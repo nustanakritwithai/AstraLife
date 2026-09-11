@@ -42,8 +42,9 @@ local function environmentMultipliers(humanoid, config)
     return hunger, thirst, energy, safetyLoss
 end
 
-function Needs.Tick(needs, humanoid, hasThreat, config)
+function Needs.Tick(needs, humanoid, hasThreat, config, worldSafetyLoss)
     local hungerMult, thirstMult, energyMult, environmentSafetyLoss = environmentMultipliers(humanoid, config)
+    local worldLoss = math.max(0, worldSafetyLoss or 0)
     local agent = humanoid and humanoid.Parent
     local learnedDecay = agent and agent:GetAttribute("P7_SurvivalDecayMultiplier") or 1
     learnedDecay = math.clamp(learnedDecay, config.P7MinSurvivalDecayMultiplier or 0.70, 1)
@@ -61,10 +62,12 @@ function Needs.Tick(needs, humanoid, hasThreat, config)
         end
     end
 
+    -- I0.1: Living World cell danger feeds the same safety reservoir as
+    -- physical threats; a dangerous cell blocks safety recovery entirely.
     if hasThreat then
-        needs.safety = clamp100(needs.safety - config.SafetyThreatLoss - environmentSafetyLoss)
-    elseif environmentSafetyLoss > 0 then
-        needs.safety = clamp100(needs.safety - environmentSafetyLoss)
+        needs.safety = clamp100(needs.safety - config.SafetyThreatLoss - environmentSafetyLoss - worldLoss)
+    elseif environmentSafetyLoss > 0 or worldLoss > 0 then
+        needs.safety = clamp100(needs.safety - environmentSafetyLoss - worldLoss)
     else
         needs.safety = clamp100(needs.safety + config.SafetyRecoveryPerTick)
     end

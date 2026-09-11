@@ -45,9 +45,19 @@ function Planner.ChooseGoal(state, observations, construction, resourceEconomy, 
     state.preferredResourceType = nil
     local w6BridgeEnabled = state.agent:GetAttribute("W6BridgeEnabled") == true
 
+    -- I0.1: critical local-world danger is an immediate survival condition,
+    -- not merely a navigation cost.
+    local worldDanger = observations.worldDanger
+    local worldDangerCritical = worldDanger ~= nil
+        and (worldDanger.effectiveDanger or 0) >= (config.WorldDangerFleeThreshold or 0.5)
+
     -- Immediate danger and critical survival always outrank the environment.
     if #observations.threats > 0 then
-        return "Flee", 130
+        return "Flee", worldDangerCritical and 133 or 130
+    end
+
+    if worldDangerCritical then
+        return "Flee", 131
     end
 
     if state.needs.thirst <= config.ThirstLow then

@@ -157,6 +157,10 @@ local function f1(value)
     return string.format("%.1f", tonumber(value) or 0)
 end
 
+local function f2(value)
+    return string.format("%.2f", tonumber(value) or 0)
+end
+
 local function sortedAgents(folder)
     local list = {}
     if folder then
@@ -175,7 +179,7 @@ end
 
 local function agentLine(agent)
     return string.format(
-        "%-18s %-8s G:%-15s C:%s/%s H:%s T:%s E:%s | S:%s G:%s B:%s XP:%s Path:%s",
+        "%-18s %-8s G:%-15s C:%s/%s H:%s T:%s E:%s | S:%s G:%s B:%s XP:%s Path:%s | Dng:%s Haz:%s",
         agent.Name,
         tostring(attr(agent, "Role", "?")),
         tostring(attr(agent, "Goal", "?")),
@@ -188,7 +192,9 @@ local function agentLine(agent)
         f1(attr(agent, "Skill_Gatherer", 0)),
         f1(attr(agent, "Skill_Builder", 0)),
         f1(attr(agent, "P7_XP_Total", 0)),
-        tostring(attr(agent, "PathComputeCount", 0))
+        tostring(attr(agent, "PathComputeCount", 0)),
+        f2(attr(agent, "W6EnvironmentDanger", 0)),
+        tostring(attr(agent, "W6DominantHazard", "?"))
     )
 end
 
@@ -225,6 +231,7 @@ while task.wait(0.5) do
             string.format("SCALE Agents:%s/%s Online:%s LegacyRes:%s Roles S:%s/%s G:%s/%s B:%s/%s", attr(state, "ScaleAgentCount", 0), 12, attr(state, "ScaleOnlineAgents", 0), attr(state, "ScaleResourceCount", 0), attr(state, "ScaleRoleCount_Scout", 0), attr(state, "ScaleRoleTarget_Scout", 2), attr(state, "ScaleRoleCount_Gatherer", 0), attr(state, "ScaleRoleTarget_Gatherer", 7), attr(state, "ScaleRoleCount_Builder", 0), attr(state, "ScaleRoleTarget_Builder", 3)),
             string.format("LOAD Registry:%s peak:%s Inbox:%s peak:%s Stuck:%s peak:%s Drops:%s Phases:%s", attr(state, "ScaleMessageRegistry", 0), attr(state, "ScalePeakMessageRegistry", 0), attr(state, "ScaleInboxTotal", 0), attr(state, "ScalePeakInbox", 0), attr(state, "ScaleStuckAgents", 0), attr(state, "ScalePeakStuckAgents", 0), attr(state, "ScaleDroppedMessages", 0), attr(state, "ScaleDecisionPhaseCount", 0)),
             string.format("BRIDGE eat:%s drink:%s harvest:%s colony:%s W6Tx:%s", tostring(attr(state, "W6_WorldEatObserved", false)), tostring(attr(state, "W6_WorldDrinkObserved", false)), tostring(attr(state, "W6_WorldHarvestObserved", false)), tostring(attr(state, "W6_WorldToColonyObserved", false)), tostring(attr(world, "W6TransactionsCommitted", 0))),
+            string.format("I0 status:%s failing:%s", tostring(attr(state, "P75W7IntegrationStatus", "BOOTING")), tostring(attr(state, "I0_FailingEvidence", "none"))),
             "",
             "AGENTS",
         }

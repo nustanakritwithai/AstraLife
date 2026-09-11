@@ -138,6 +138,17 @@ Config.ScaleRoleTolerance = 2
 -- W7 integration compatibility.
 Config.W7IntegrationEnabled = true
 Config.LivingWorldDecisionTicks = 8 -- 8 * 0.25s = 2s, matching the legacy Agent cadence.
+
+-- I0.1 world danger -> Agent survival bridge.
+Config.WorldDangerFleeThreshold = 0.5 -- effective W4/W7 cell danger that forces Flee
+Config.WorldDangerSafetyLossPerTick = 8 -- safety loss per tick at danger == 1
+Config.WorldEscapeRadiusCells = 10 -- search radius for the nearest safe cell
+
+-- I0.4 reachable-source fallback.
+Config.W6RouteAttemptBudget = 3 -- max W5 route attempts per Navigate call
+
+-- I0.3 runtime integration verifier.
+Config.IntegrationTransactionGraceTicks = 200 -- living ticks before W6 transactions are required
 Config.LivingWorldPhysicalSize = 1056 -- covers the 64x64 * 16-stud logical world with a small margin.
 
 Config.ResourceRespawnSeconds = 14

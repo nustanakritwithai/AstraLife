@@ -619,6 +619,23 @@ local function executeGather(state, observations)
 end
 
 local function executeFlee(state, observations)
+    -- I0.1: world-cell danger first requests a safe logical W5 route; the
+    -- Roblox path execution below stays the physical transport.
+    local worldDanger = observations.worldDanger
+    if worldDanger and (worldDanger.effectiveDanger or 0) >= (Config.WorldDangerFleeThreshold or 0.5) then
+        state.folders.state:SetAttribute("P4_SafetyResponse", true)
+        state.folders.state:SetAttribute("W6_WorldEscapeObserved", true)
+        if state.worldBridge and state.worldBridge.Escape then
+            local escape = state.worldBridge.Escape(state.root.Position)
+            if escape.ok and escape.nextPosition then
+                debug(state.agent, "W6EscapeTarget", escape.nextPosition)
+                pathMove(state, escape.nextPosition, true)
+                return
+            end
+            debug(state.agent, "W6EscapeReason", escape.reason or "no_route")
+        end
+    end
+
     local threat = observations.threats[1]
     if not threat then return end
     local away = state.root.Position - threat.position
@@ -914,9 +931,29 @@ function BrainIntegrated.Start(agent, services)
 
             processMessages(state)
             local observations = Perception.Observe(agent, folders, Config, state.tick)
+
+            -- I0.1: read the Living World cell danger through the single
+            -- W-series observation contract; no second hazard authority here.
+            if state.worldBridge and state.worldBridge.ObserveEnvironment then
+                local worldDanger = state.worldBridge.ObserveEnvironment(state.root.Position)
+                observations.worldDanger = worldDanger
+                debug(agent, "W6EnvironmentDanger", worldDanger.effectiveDanger or 0)
+                debug(agent, "W6DominantHazard", worldDanger.dominantHazard or "none")
+                if (worldDanger.effectiveDanger or 0) >= (Config.WorldDangerFleeThreshold or 0.5) then
+                    agent:SetAttribute("W6WorldDangerCritical", true)
+                    folders.state:SetAttribute("W6_WorldDangerObserved", true)
+                end
+                setBelief(state, "world_danger", (worldDanger.effectiveDanger or 0) >= (Config.WorldDangerFleeThreshold or 0.5),
+                    worldDanger.effectiveDanger or 0, "living_world", "W6", state.tick + 4)
+            end
+
             updateBeliefsFromObservation(state, observations)
 
-            local critical = Needs.Tick(state.needs, humanoid, #observations.threats > 0, Config)
+            local worldSafetyLoss = 0
+            if observations.worldDanger then
+                worldSafetyLoss = (observations.worldDanger.effectiveDanger or 0) * (Config.WorldDangerSafetyLossPerTick or 8)
+            end
+            local critical = Needs.Tick(state.needs, humanoid, #observations.threats > 0, Config, worldSafetyLoss)
             Needs.SyncAgent(agent, state.needs, Config)
             folders.state:SetAttribute("P4_NeedsDecayed", true)
             if critical then folders.state:SetAttribute("P4_CriticalDamageObserved", true) end
