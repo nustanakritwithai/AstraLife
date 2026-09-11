@@ -1,6 +1,10 @@
 local EnvironmentQuery = {}
 EnvironmentQuery.__index = EnvironmentQuery
 
+local function effectiveDanger(cell)
+    return math.max(cell.danger or 0, cell.hazardDanger or 0)
+end
+
 function EnvironmentQuery.new(grid)
     assert(grid, "grid is required")
     return setmetatable({ grid = grid }, EnvironmentQuery)
@@ -30,21 +34,33 @@ function EnvironmentQuery:GetAffordancesAt(position)
         }
     end
 
-    local safe = cell.danger <= 0.25
+    local danger = effectiveDanger(cell)
+    local safe = danger <= 0.25
     local slope = cell.slope or 0
     local food = math.max(0, cell.food or 0)
     local wood = math.max(0, cell.wood or 0)
+    local blockedByHazard = cell.hazardBlocked == true
+    local canWalk = cell.walkable == true and not blockedByHazard
+
     return {
         inWorld = true,
-        canWalk = cell.walkable == true,
+        canWalk = canWalk,
         canDrink = cell.water >= 0.2 or (cell.waterPotential or 0) >= 0.85,
         canEat = food >= 1,
         canForage = food > 0.05,
         canHarvestWood = wood >= 1,
-        canRest = cell.walkable == true and safe and slope < 0.65,
-        canBuild = cell.walkable == true and safe and cell.water < 0.15 and slope < 0.35,
+        canRest = canWalk and safe and slope < 0.65,
+        canBuild = canWalk and safe and cell.water < 0.15 and slope < 0.35,
         safe = safe,
-        danger = cell.danger,
+        danger = danger,
+        baseDanger = cell.danger or 0,
+        hazardDanger = cell.hazardDanger or 0,
+        hazardBlocked = blockedByHazard,
+        dominantHazard = cell.dominantHazard or "None",
+        fireIntensity = cell.fireIntensity or 0,
+        floodSeverity = cell.floodSeverity or 0,
+        droughtSeverity = cell.droughtSeverity or 0,
+        stormSeverity = cell.stormSeverity or 0,
         biome = cell.biome,
         terrainType = cell.terrainType,
         terrainTags = cell.terrainTags,
@@ -67,12 +83,12 @@ end
 
 function EnvironmentQuery:IsWalkable(position)
     local cell = self:GetCellAtWorldPosition(position)
-    return cell ~= nil and cell.walkable == true
+    return cell ~= nil and cell.walkable == true and cell.hazardBlocked ~= true
 end
 
 function EnvironmentQuery:IsSafe(position, maxDanger)
     local cell = self:GetCellAtWorldPosition(position)
-    return cell ~= nil and cell.danger <= (maxDanger or 0.25)
+    return cell ~= nil and effectiveDanger(cell) <= (maxDanger or 0.25)
 end
 
 function EnvironmentQuery:FindBestCell(originPosition, radiusCells, scorer)
