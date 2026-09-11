@@ -8,33 +8,37 @@ local function sortByDistance(list)
     end)
 end
 
-function Perception.Observe(agent, folders, config)
+local function resourceObservation(agent, resource, distance, tick, config)
+    local resourceType = resource:GetAttribute("ResourceType") or "Wood"
+    return {
+        id = string.format("resource:%s:%d:%s", resource.Name, tick, agent.Name),
+        type = "resource",
+        subtype = resourceType,
+        resourceId = resource.Name,
+        sourceAgentId = agent.Name,
+        position = resource.Position,
+        distance = distance,
+        observedTick = tick,
+        createdTick = tick,
+        confidence = config.DirectObservationConfidence or 1.0,
+        provenance = "direct",
+        instance = resource,
+    }
+end
+
+function Perception.Observe(agent, folders, config, tick)
     local root = agent:FindFirstChild("HumanoidRootPart")
     if not root then
-        return {
-            resources = {},
-            agents = {},
-            threats = {},
-            players = {},
-        }
+        return { resources = {}, agents = {}, threats = {}, players = {} }
     end
 
-    local observations = {
-        resources = {},
-        agents = {},
-        threats = {},
-        players = {},
-    }
+    local observations = { resources = {}, agents = {}, threats = {}, players = {} }
 
     for _, resource in ipairs(folders.resources:GetChildren()) do
         if resource:IsA("BasePart") and resource:GetAttribute("Active") ~= false then
             local distance = (resource.Position - root.Position).Magnitude
             if distance <= config.ResourceRange then
-                table.insert(observations.resources, {
-                    instance = resource,
-                    position = resource.Position,
-                    distance = distance,
-                })
+                table.insert(observations.resources, resourceObservation(agent, resource, distance, tick, config))
             end
         end
     end
