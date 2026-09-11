@@ -1,0 +1,25 @@
+name: Build AstraLife Kingdom K9 MultiSettlement
+
+on:
+  push:
+    branches: [feat/roblox-kingdom-k9-multisettlement]
+    paths: ["roblox/**", "rokit.toml", ".github/workflows/roblox-kingdom-k9-build.yml"]
+  pull_request:
+    branches: [feat/roblox-kingdom-k0-core]
+    paths: ["roblox/**", "rokit.toml", ".github/workflows/roblox-kingdom-k9-build.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: CompeyDev/setup-rokit@v0.1.2
+        with: { version: "v1.1.0" }
+      - run: rojo build roblox/default.project.json -o AstraLife-K9.rbxl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-K9-MultiSettlement
+          path: AstraLife-K9.rbxl
+          if-no-files-found: error
+          retention-days: 14
