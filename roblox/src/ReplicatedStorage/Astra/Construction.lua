@@ -154,7 +154,6 @@ function Construction.TryStart(builder, folders, config, tick)
     marker.Parent = folders.structures
 
     local buildId = string.format("%s:%d", blueprint.id, tick)
-
     resetMaterialLedger(folders.state, blueprint.recipe)
 
     activeBuild = {
@@ -179,7 +178,6 @@ function Construction.TryStart(builder, folders, config, tick)
     folders.state:SetAttribute("ActiveBuildWorker", builder.Name)
 
     updateSiteLabel(activeBuild, folders.state)
-
     return activeBuild, "site_created"
 end
 
@@ -209,7 +207,14 @@ function Construction.Step(builder, folders, config, tick)
     folders.state:SetAttribute("BuildStatus", "Building")
     folders.state:SetAttribute("P2_BuilderSpentRecipe", true)
 
-    active.progress += 1
+    local workUnits = builder:GetAttribute("P7_BuildSpeedMultiplier") or 1
+    workUnits = math.max(1, workUnits)
+    active.progress += workUnits
+    builder:SetAttribute("P7_LastBuildWorkUnits", workUnits)
+    if workUnits > 1 then
+        folders.state:SetAttribute("P7_BuildEffectObserved", true)
+    end
+
     local percent = math.clamp(math.floor((active.progress / active.blueprint.buildSteps) * 100), 0, 100)
     folders.state:SetAttribute("BuildProgress", percent)
     folders.state:SetAttribute("P3_BuildProgress", true)
@@ -240,7 +245,6 @@ function Construction.Step(builder, folders, config, tick)
 
     local completed = active
     activeBuild = nil
-
     return true, "completed", completed
 end
 
