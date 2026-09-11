@@ -7,7 +7,7 @@ gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local panel = Instance.new("Frame")
-panel.Size = UDim2.fromOffset(390, 300)
+panel.Size = UDim2.fromOffset(430, 365)
 panel.Position = UDim2.fromOffset(16, 16)
 panel.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
 panel.BackgroundTransparency = 0.1
@@ -26,7 +26,7 @@ label.TextXAlignment = Enum.TextXAlignment.Left
 label.TextYAlignment = Enum.TextYAlignment.Top
 label.TextColor3 = Color3.fromRGB(235, 242, 255)
 label.Font = Enum.Font.Code
-label.TextSize = 16
+label.TextSize = 15
 label.TextWrapped = false
 label.Parent = panel
 
@@ -67,18 +67,20 @@ while task.wait(0.5) do
 
     local lines = {
         "ASTRALIFE ROBLOX " .. tostring(attr(state, "Version", "?")),
-        string.format("Tick: %s   P1: %s   P2: %s", attr(state, "WorldTick", 0), attr(state, "P1Status", "?"), attr(state, "P2Status", "?")),
+        string.format("Tick:%s   P1:%s   P2:%s   P3:%s", attr(state, "WorldTick", 0), attr(state, "P1Status", "?"), attr(state, "P2Status", "?"), attr(state, "P3Status", "?")),
         "",
         string.format("STOCK  Wood:%s  Stone:%s  Food:%s  Water:%s", attr(state, "Stock_Wood", 0), attr(state, "Stock_Stone", 0), attr(state, "Stock_Food", 0), attr(state, "Stock_Water", 0)),
         string.format("Storage: %s/%s", attr(state, "StockTotal", 0), attr(state, "StorageCapacity", 0)),
-        string.format("Build: %s  %s%%", attr(state, "ActiveBuildId", "None"), attr(state, "BuildProgress", 0)),
+        string.format("Build: %s  %s%%  Status:%s", attr(state, "ActiveBuildId", "None"), attr(state, "BuildProgress", 0), attr(state, "BuildStatus", "?")),
+        string.format("Site need W:%s S:%s | delivered W:%s S:%s", attr(state, "P3_Required_Wood", 0), attr(state, "P3_Required_Stone", 0), attr(state, "P3_Delivered_Wood", 0), attr(state, "P3_Delivered_Stone", 0)),
         "",
         agentLine(scout),
         agentLine(gatherer),
         agentLine(builder),
         "",
-        string.format("P1: sent=%s recv=%s belief75=%s remote=%s verify=%s collect=%s", tostring(attr(state, "P1_ScoutSent", false)), tostring(attr(state, "P1_GathererReceived", false)), tostring(attr(state, "P1_Belief75", false)), tostring(attr(state, "P1_RemoteGoal", false)), tostring(attr(state, "P1_Verified100", false)), tostring(attr(state, "P1_Collected", false))),
-        string.format("P2: carry=%s deposit=%s recipe=%s storage=%s", tostring(attr(state, "P2_CarryObserved", false)), tostring(attr(state, "P2_DepositObserved", false)), tostring(attr(state, "P2_BuilderSpentRecipe", false)), tostring(attr(state, "P2_StorageReady", false))),
+        string.format("P1 sent=%s recv=%s belief75=%s remote=%s verify=%s collect=%s", tostring(attr(state, "P1_ScoutSent", false)), tostring(attr(state, "P1_GathererReceived", false)), tostring(attr(state, "P1_Belief75", false)), tostring(attr(state, "P1_RemoteGoal", false)), tostring(attr(state, "P1_Verified100", false)), tostring(attr(state, "P1_Collected", false))),
+        string.format("P2 carry=%s deposit=%s recipe=%s storage=%s", tostring(attr(state, "P2_CarryObserved", false)), tostring(attr(state, "P2_DepositObserved", false)), tostring(attr(state, "P2_BuilderSpentRecipe", false)), tostring(attr(state, "P2_StorageReady", false))),
+        string.format("P3 site=%s request=%s delivery=%s ready=%s wait=%s progress=%s complete=%s", tostring(attr(state, "P3_SiteCreated", false)), tostring(attr(state, "P3_MaterialsRequested", false)), tostring(attr(state, "P3_MaterialDelivered", false)), tostring(attr(state, "P3_AllMaterialsDelivered", false)), tostring(attr(state, "P3_BuilderWaited", false)), tostring(attr(state, "P3_BuildProgress", false)), tostring(attr(state, "P3_BuildCompleted", false))),
     }
 
     label.Text = table.concat(lines, "\n")
