@@ -4,9 +4,10 @@ local Astra = ReplicatedStorage:WaitForChild("Astra")
 local Brain = require(Astra.Brain)
 local Config = require(Astra.Config)
 local WorldState = require(Astra.WorldState)
+local SharedKnowledge = require(Astra.SharedKnowledge)
+local P2Verifier = require(Astra.P2Verifier)
 
-local folders = WorldState.Ensure()
-
+local folders = WorldState.Ensure(Config)
 local started = setmetatable({}, { __mode = "k" })
 
 local function startAgent(agent)
@@ -35,12 +36,16 @@ folders.agents.ChildAdded:Connect(function(agent)
     startAgent(agent)
 end)
 
--- One shared world clock. Agents keep their own local decision ticks as well.
+-- One authoritative colony clock. All TTL/knowledge expiry is based on this tick.
 task.spawn(function()
     while true do
         task.wait(Config.TickSeconds)
-        WorldState.NextTick()
+        local tick = WorldState.NextTick(Config)
+        local expired = SharedKnowledge.Cleanup(tick)
+        folders.state:SetAttribute("ExpiredSharedKnowledge", (folders.state:GetAttribute("ExpiredSharedKnowledge") or 0) + expired)
+        folders.state:SetAttribute("KnownResourceCount", SharedKnowledge.ActiveCount(tick))
+        P2Verifier.Update(folders.state)
     end
 end)
 
-print("[AstraLife] Agent service online")
+print("[AstraLife] Agent service online - P2")
