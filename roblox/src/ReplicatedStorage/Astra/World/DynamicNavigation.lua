@@ -67,7 +67,7 @@ local function reconstruct(grid, cameFrom, goalKey)
             key = key,
             version = cell and cell.version or -1,
             hazardDanger = cell and (cell.hazardDanger or 0) or 1,
-            hazardBlocked = cell and cell.hazardBlocked == true or true,
+            hazardBlocked = cell ~= nil and cell.hazardBlocked == true,
         })
         key = cameFrom[key]
     end
