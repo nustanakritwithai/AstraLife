@@ -38,6 +38,16 @@ local function append(input)
     return event
 end
 
+local function severityForState(serialized)
+    if string.find(serialized, "CRISIS", 1, true)
+        or string.find(serialized, "ERROR", 1, true)
+        or string.find(serialized, "SEVERE", 1, true)
+    then
+        return "crisis"
+    end
+    return "notice"
+end
+
 local function observeKingdomState(tick)
     for _, child in ipairs(root:GetChildren()) do
         if child:IsA("Folder") and child ~= scope then
@@ -51,7 +61,7 @@ local function observeKingdomState(tick)
                             eventId = string.format("auto:%s:%s:%d", child.Name, key, tick),
                             category = "state_change",
                             subject = child.Name,
-                            severity = string.find(serialized, "CRISIS") or string.find(serialized, "ERROR") or string.find(serialized, "SEVERE") and "crisis" or "notice",
+                            severity = severityForState(serialized),
                             title = child.Name .. " " .. key .. " changed",
                             summary = tostring(observed[id]) .. " -> " .. serialized,
                             source = "K20Observer",
