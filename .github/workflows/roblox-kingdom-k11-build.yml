@@ -1,0 +1,25 @@
+name: Build AstraLife Kingdom K11 Fiscal Policy
+
+on:
+  push:
+    branches: [feat/roblox-kingdom-k11-fiscal-policy]
+    paths: ["roblox/**", "rokit.toml", ".github/workflows/roblox-kingdom-k11-build.yml"]
+  pull_request:
+    branches: [feat/roblox-kingdom-k0-core]
+    paths: ["roblox/**", "rokit.toml", ".github/workflows/roblox-kingdom-k11-build.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: CompeyDev/setup-rokit@v0.1.2
+        with: { version: "v1.1.0" }
+      - run: rojo build roblox/default.project.json -o AstraLife-K11.rbxl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-K11-FiscalPolicy
+          path: AstraLife-K11.rbxl
+          if-no-files-found: error
+          retention-days: 14
