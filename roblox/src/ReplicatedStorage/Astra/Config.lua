@@ -1,6 +1,6 @@
 local Config = {}
 
-Config.RuntimeVersion = "0.3.0-p3"
+Config.RuntimeVersion = "0.4.0-p4"
 
 Config.TickSeconds = 2
 Config.ThinkVisibleSeconds = 2
@@ -14,6 +14,8 @@ Config.CollectDistance = 4.5
 Config.ArrivalDistance = 5
 Config.DepositDistance = 6
 Config.BuildSiteDeliveryDistance = 6
+Config.SurvivalUseDistance = 6
+Config.SocialDistance = 8
 
 Config.WalkSpeed = 9
 Config.RunSpeed = 14
@@ -31,12 +33,40 @@ Config.ReportedResourceConfidence = 0.75
 Config.DirectObservationConfidence = 1.0
 Config.MaxMessageQueueSize = 50
 
-Config.EnergyStart = 100
-Config.EnergyDecayPerTick = 1.2
-Config.EnergyRestGain = 9
-Config.EnergyLow = 28
+-- P4 survival needs: 100 = fully satisfied, 0 = critical.
+Config.HungerStart = 70
+Config.HungerDecayPerTick = 2.5
+Config.HungerLow = 45
+Config.HungerCritical = 15
+Config.FoodRestore = 55
+
+Config.ThirstStart = 68
+Config.ThirstDecayPerTick = 3.5
+Config.ThirstLow = 45
+Config.ThirstCritical = 15
+Config.WaterRestore = 60
+
+Config.EnergyStart = 55
+Config.EnergyDecayPerTick = 2.0
+Config.EnergyRestGain = 16
+Config.EnergyLow = 30
+Config.ShelterRestBonus = 8
+
 Config.SafetyStart = 100
-Config.SocialStart = 60
+Config.SafetyRecoveryPerTick = 3
+Config.SafetyThreatLoss = 15
+
+Config.SocialStart = 55
+Config.SocialDecayPerTick = 1.5
+Config.SocialLow = 28
+Config.SocialRestore = 35
+
+Config.CriticalNeedDamage = 4
+Config.HealthyRecovery = 1
+Config.SurvivalStockTargetFood = 4
+Config.SurvivalStockTargetWater = 4
+Config.DemoStartingFood = 2
+Config.DemoStartingWater = 2
 
 Config.ResourceRespawnSeconds = 14
 Config.DemoResourceCount = 8
