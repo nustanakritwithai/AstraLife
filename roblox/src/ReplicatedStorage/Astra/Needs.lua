@@ -14,10 +14,10 @@ function Needs.Create(config)
     }
 end
 
-local function environmentMultipliers(config)
-    local worldState = workspace:FindFirstChild("AstraWorldState")
-    local weather = worldState and worldState:GetAttribute("Weather") or "Clear"
-    local isNight = worldState and worldState:GetAttribute("IsNight") == true or false
+local function environmentMultipliers(humanoid, config)
+    local agent = humanoid and humanoid.Parent
+    local weather = agent and agent:GetAttribute("ObservedWeather") or "Clear"
+    local isNight = agent and agent:GetAttribute("ObservedIsNight") == true or false
 
     local hunger = 1
     local thirst = 1
@@ -35,15 +35,15 @@ local function environmentMultipliers(config)
         energy *= config.NightEnergyDecayMultiplier
     end
 
-    if worldState and (weather ~= "Clear" or isNight) then
-        worldState:SetAttribute("P5_WeatherAffectedNeeds", true)
+    if agent and (weather ~= "Clear" or isNight) then
+        agent:SetAttribute("P5WeatherAffectedNeeds", true)
     end
 
     return hunger, thirst, energy, safetyLoss
 end
 
 function Needs.Tick(needs, humanoid, hasThreat, config)
-    local hungerMult, thirstMult, energyMult, environmentSafetyLoss = environmentMultipliers(config)
+    local hungerMult, thirstMult, energyMult, environmentSafetyLoss = environmentMultipliers(humanoid, config)
 
     needs.hunger = clamp100(needs.hunger - config.HungerDecayPerTick * hungerMult)
     needs.thirst = clamp100(needs.thirst - config.ThirstDecayPerTick * thirstMult)
