@@ -28,6 +28,19 @@ local function refreshPiece(current, pieceId)
     PieceRenderer.UpdateLifecycle(findInstance(current.renderFolder, pieceId), piece)
 end
 
+local function initializePlacedPiece(current, piece, metadata)
+    if not piece then return end
+    local requestedGrade = metadata and metadata.materialGrade
+    if requestedGrade and MaterialGradeCatalog.IsValid(requestedGrade) then
+        piece.materialGrade = requestedGrade
+        piece.health = nil
+        piece.maxHealth = nil
+        piece.destroyed = false
+    end
+    current.lifecycle:EnsurePiece(piece)
+    refreshPiece(current, piece.id)
+end
+
 local function gradeCounts(current)
     local counts = {
         Scaffold = 0,
@@ -61,8 +74,8 @@ local function publishStats(current, action, reason)
     for grade, count in pairs(counts) do
         state:SetAttribute("B1Grade_" .. grade, count)
     end
-    state:SetAttribute("B1LastAction", tostring(action or "none"))
-    state:SetAttribute("B1LastReason", tostring(reason or "ok"))
+    if action then state:SetAttribute("B1LastAction", tostring(action)) end
+    if reason then state:SetAttribute("B1LastReason", tostring(reason)) end
 end
 
 local function emit(current, eventType, payload)
@@ -102,11 +115,54 @@ function BuildingLifecycleService.Start()
     }
     publishStats(result, "start", "ok")
 
+    if base.runtime and base.runtime.clock then
+        base.runtime.clock:RegisterSystem("B1.BuildingLifecycleDiagnostics", 4, function()
+            publishStats(result)
+        end, 900)
+    end
+
     emit(result, "building.lifecycle.started", {
         version = "B1",
         grades = MaterialGradeCatalog.Order(),
     })
     return result
+end
+
+function BuildingLifecycleService.PreviewRoot(pieceType, requestedPosition, yawDegrees)
+    BuildingLifecycleService.Start()
+    return ModularBuildingService.PreviewRoot(pieceType, requestedPosition, yawDegrees)
+end
+
+function BuildingLifecycleService.PlaceRoot(pieceType, requestedPosition, yawDegrees, metadata)
+    local current = BuildingLifecycleService.Start()
+    local piece, reason = ModularBuildingService.PlaceRoot(pieceType, requestedPosition, yawDegrees, metadata)
+    if piece then initializePlacedPiece(current, piece, metadata) end
+    publishStats(current, "place_root", reason or "ok")
+    return piece, reason
+end
+
+function BuildingLifecycleService.PreviewSnap(pieceType, parentId, parentSocketName, attachmentName)
+    BuildingLifecycleService.Start()
+    return ModularBuildingService.PreviewSnap(pieceType, parentId, parentSocketName, attachmentName)
+end
+
+function BuildingLifecycleService.PlaceSnap(pieceType, parentId, parentSocketName, attachmentName, metadata)
+    local current = BuildingLifecycleService.Start()
+    local piece, reason = ModularBuildingService.PlaceSnap(
+        pieceType,
+        parentId,
+        parentSocketName,
+        attachmentName,
+        metadata
+    )
+    if piece then initializePlacedPiece(current, piece, metadata) end
+    publishStats(current, "place_snap", reason or "ok")
+    return piece, reason
+end
+
+function BuildingLifecycleService.GetOpenSockets(pieceId, kind)
+    BuildingLifecycleService.Start()
+    return ModularBuildingService.GetOpenSockets(pieceId, kind)
 end
 
 function BuildingLifecycleService.GetPieceState(pieceId)
