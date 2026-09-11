@@ -41,22 +41,21 @@ function WorldSimSkills.Ensure(agent)
 end
 
 local function gatherSkill(agent)
-    local wood = agent:GetAttribute("Carry_Wood") or 0
-    local stone = agent:GetAttribute("Carry_Stone") or 0
-    local food = agent:GetAttribute("Carry_Food") or 0
-    local water = agent:GetAttribute("Carry_Water") or 0
-    local bestType, bestAmount = "logistics", -1
     local options = {
-        woodcutting = wood,
-        mining = stone,
-        farming = food + water,
+        { skill = "farming", amount = (agent:GetAttribute("Carry_Food") or 0) + (agent:GetAttribute("Carry_Water") or 0) },
+        { skill = "mining", amount = agent:GetAttribute("Carry_Stone") or 0 },
+        { skill = "woodcutting", amount = agent:GetAttribute("Carry_Wood") or 0 },
     }
-    for skill, amount in pairs(options) do
-        if amount > bestAmount then
-            bestType, bestAmount = skill, amount
+    local best = options[1]
+    for index = 2, #options do
+        local candidate = options[index]
+        if candidate.amount > best.amount
+            or (candidate.amount == best.amount and candidate.skill < best.skill)
+        then
+            best = candidate
         end
     end
-    return bestType
+    return best.skill
 end
 
 function WorldSimSkills.Tick(agent)
