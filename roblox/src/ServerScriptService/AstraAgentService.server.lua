@@ -14,9 +14,12 @@ local P4Verifier = require(Astra.P4Verifier)
 local P5Verifier = require(Astra.P5Verifier)
 local P6Verifier = require(Astra.P6Verifier)
 local P7Verifier = require(Astra.P7Verifier)
+local SurvivalBridgeService = require(script.Parent.AstraWorld.SurvivalBridgeService)
 
 local folders = WorldState.Ensure(Config)
 local started = setmetatable({}, { __mode = "k" })
+local livingWorld = SurvivalBridgeService.Start()
+livingWorld.runtime.state:SetAttribute("W6BrainIntegrated", true)
 
 WorldSimulation.Initialize(folders, Config)
 RoleSystem.Initialize(folders, Config)
@@ -68,4 +71,4 @@ task.spawn(function()
     end
 end)
 
-print("[AstraLife] Agent service online - P7 Skill Learning")
+print("[AstraLife] Agent service online - P7 Skill Learning + W6 Living World Bridge")
