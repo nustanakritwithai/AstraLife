@@ -22,6 +22,8 @@ function EnvironmentQuery:GetAffordancesAt(position)
             canWalk = false,
             canDrink = false,
             canEat = false,
+            canForage = false,
+            canHarvestWood = false,
             canRest = false,
             canBuild = false,
             safe = false,
@@ -30,11 +32,15 @@ function EnvironmentQuery:GetAffordancesAt(position)
 
     local safe = cell.danger <= 0.25
     local slope = cell.slope or 0
+    local food = math.max(0, cell.food or 0)
+    local wood = math.max(0, cell.wood or 0)
     return {
         inWorld = true,
         canWalk = cell.walkable == true,
         canDrink = cell.water >= 0.2 or (cell.waterPotential or 0) >= 0.85,
-        canEat = cell.food >= 1,
+        canEat = food >= 1,
+        canForage = food > 0.05,
+        canHarvestWood = wood >= 1,
         canRest = cell.walkable == true and safe and slope < 0.65,
         canBuild = cell.walkable == true and safe and cell.water < 0.15 and slope < 0.35,
         safe = safe,
@@ -49,6 +55,13 @@ function EnvironmentQuery:GetAffordancesAt(position)
         temperature = cell.temperature,
         fertility = cell.fertility,
         waterPotential = cell.waterPotential,
+        vegetation = cell.vegetation or 0,
+        vegetationCapacity = cell.vegetationCapacity or 0,
+        food = food,
+        foodCapacity = cell.foodCapacity or 0,
+        wood = wood,
+        woodCapacity = cell.woodCapacity or 0,
+        growthSuitability = cell.growthSuitability or 0,
     }
 end
 
