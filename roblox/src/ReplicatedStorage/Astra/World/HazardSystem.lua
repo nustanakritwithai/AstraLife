@@ -45,18 +45,20 @@ end
 local function dominantHazard(fire, flood, drought, storm)
     local name = "None"
     local score = 0
-    local weighted = {
-        Fire = fire,
-        Flood = flood * 0.82,
-        Drought = drought * 0.38,
-        Storm = storm * 0.62,
-    }
-    for hazardName, value in pairs(weighted) do
+
+    local function consider(hazardName, value)
         if value > score then
             name = hazardName
             score = value
         end
     end
+
+    -- Fixed priority order makes exact-score ties deterministic.
+    consider("Fire", fire)
+    consider("Flood", flood * 0.82)
+    consider("Drought", drought * 0.38)
+    consider("Storm", storm * 0.62)
+
     if score < 0.05 then
         return "None"
     end
