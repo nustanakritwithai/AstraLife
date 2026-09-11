@@ -1,0 +1,24 @@
+name: Build AstraLife Kingdom K21 Integration Bus
+
+on:
+  push:
+    branches: [feat/roblox-kingdom-k21-integration-bus]
+  pull_request:
+    branches: [feat/roblox-kingdom-k0-core]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+      - run: rojo build roblox/default.project.json -o AstraLife-Kingdom-K21.rbxl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-Kingdom-K21-Place
+          path: AstraLife-Kingdom-K21.rbxl
+          if-no-files-found: error
+          retention-days: 14
