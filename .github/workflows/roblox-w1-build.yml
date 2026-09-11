@@ -1,0 +1,34 @@
+name: Build AstraLife Roblox W1
+
+on:
+  pull_request:
+    branches:
+      - feat/roblox-w0-living-world-foundation
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-w1-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+
+      - name: Build Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-W1.rbxl
+
+      - name: Upload W1 place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-Roblox-W1
+          path: AstraLife-W1.rbxl
+          if-no-files-found: error
+          retention-days: 14
