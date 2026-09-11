@@ -101,6 +101,7 @@ function WorldService.Start(options)
     clock:RegisterSystem("W0.StateReplication", 4, function(context)
         local entries = dirty:Drain(256)
         local snapshot = WorldSnapshot.BuildDelta({
+            version = state:GetAttribute("Version") or "W0",
             seed = config.seed,
             tick = context.tick,
             simTime = context.simTime,
