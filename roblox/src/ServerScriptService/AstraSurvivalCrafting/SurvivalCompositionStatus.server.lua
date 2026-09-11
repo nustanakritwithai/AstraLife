@@ -20,7 +20,14 @@ local SCOPE_BY_PHASE = {
     S10 = "S10Containers",
     S11 = "S11Automation",
     S12 = "S12Durability",
+    I2 = "I2WorldItemAdapter",
 }
+
+-- S0 reports on the root itself; every other phase owns one scope.
+local REQUIRED_PASS_COUNT = 1
+for _ in pairs(SCOPE_BY_PHASE) do
+    REQUIRED_PASS_COUNT += 1
+end
 
 local COMPOSITION_TIMEOUT_SECONDS = 30
 local startedAt = os.clock()
@@ -64,7 +71,7 @@ while true do
     if #failing > 0 then
         status = "FAIL"
         table.sort(failing)
-    elseif passCount == 12 then
+    elseif passCount == REQUIRED_PASS_COUNT then
         status = "PASS"
     elseif #pending > 0 and os.clock() - startedAt > COMPOSITION_TIMEOUT_SECONDS then
         status = "FAIL"

@@ -9,6 +9,10 @@ local contracts = {
     FiberPlant = { toolClass = "hand", minTier = 0, hardness = 0.2, yields = { Fiber = 4 } },
     AnimalCarcass = { toolClass = "knife", minTier = 1, hardness = 0.7, yields = { RawMeat = 3, Leather = 2 } },
     SalvagePile = { toolClass = "hand", minTier = 0, hardness = 0.5, yields = { Scrap = 3, Gear = 1 } },
+    -- I2: water and forage source semantics so the WorldGatherReceipt adapter
+    -- can convert W water/forage withdrawals without fabricating item kinds.
+    WaterSource = { toolClass = "hand", minTier = 0, hardness = 0.1, yields = { FreshWater = 1 } },
+    ForageBush = { toolClass = "hand", minTier = 0, hardness = 0.15, yields = { ForageGreens = 3 } },
 }
 
 function GatheringContracts.Get(sourceKind)
