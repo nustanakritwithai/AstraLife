@@ -12,7 +12,7 @@ local function ensureFolder(parent, name)
     return folder
 end
 
-function WorldState.Ensure()
+function WorldState.Ensure(config)
     local folders = {
         agents = ensureFolder(workspace, "AstraAgents"),
         resources = ensureFolder(workspace, "AstraResources"),
@@ -22,56 +22,39 @@ function WorldState.Ensure()
 
     local state = folders.state
 
-    if state:GetAttribute("TeamResources") == nil then
-        state:SetAttribute("TeamResources", 0)
-    end
-    if state:GetAttribute("WorldTick") == nil then
-        state:SetAttribute("WorldTick", 0)
-    end
-    if state:GetAttribute("ActiveBuildId") == nil then
-        state:SetAttribute("ActiveBuildId", "None")
-    end
-    if state:GetAttribute("BuildProgress") == nil then
-        state:SetAttribute("BuildProgress", 0)
-    end
-    if state:GetAttribute("BuildStatus") == nil then
-        state:SetAttribute("BuildStatus", "Idle")
+    local defaults = {
+        WorldTick = 0,
+        ActiveBuildId = "None",
+        BuildProgress = 0,
+        BuildStatus = "Idle",
+        Stock_Wood = 0,
+        Stock_Stone = 0,
+        Stock_Food = 0,
+        Stock_Water = 0,
+        StockTotal = 0,
+        StorageCapacity = config and config.StorageCapacity or 40,
+        P1Status = "RUNNING",
+        P2Status = "RUNNING",
+    }
+
+    for key, value in pairs(defaults) do
+        if state:GetAttribute(key) == nil then
+            state:SetAttribute(key, value)
+        end
     end
 
     return folders
 end
 
-function WorldState.GetResources()
-    local folders = WorldState.Ensure()
-    return folders.state:GetAttribute("TeamResources") or 0
-end
-
-function WorldState.AddResources(amount)
-    local folders = WorldState.Ensure()
-    local value = (folders.state:GetAttribute("TeamResources") or 0) + math.max(0, amount or 0)
-    folders.state:SetAttribute("TeamResources", value)
-    return value
-end
-
-function WorldState.SpendResources(amount)
-    amount = math.max(0, amount or 0)
-    local folders = WorldState.Ensure()
-    local current = folders.state:GetAttribute("TeamResources") or 0
-
-    if current < amount then
-        return false, current
-    end
-
-    local nextValue = current - amount
-    folders.state:SetAttribute("TeamResources", nextValue)
-    return true, nextValue
-end
-
-function WorldState.NextTick()
-    local folders = WorldState.Ensure()
+function WorldState.NextTick(config)
+    local folders = WorldState.Ensure(config)
     local tick = (folders.state:GetAttribute("WorldTick") or 0) + 1
     folders.state:SetAttribute("WorldTick", tick)
     return tick
+end
+
+function WorldState.GetTick(config)
+    return WorldState.Ensure(config).state:GetAttribute("WorldTick") or 0
 end
 
 return WorldState
