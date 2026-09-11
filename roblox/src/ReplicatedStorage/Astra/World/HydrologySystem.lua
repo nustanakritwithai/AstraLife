@@ -37,9 +37,7 @@ local function lowestNeighbor(grid, cell)
         if grid:IsInside(nx, nz) then
             local neighbor = grid:ReadCell(nx, nz)
             if neighbor and neighbor.elevation < cell.elevation then
-                if not best or neighbor.elevation < best.elevation then
-                    best = neighbor
-                end
+                if not best or neighbor.elevation < best.elevation then best = neighbor end
             end
         end
     end
@@ -68,9 +66,16 @@ end
 function HydrologySystem:Step(climate, dirtyTracker, deltaSeconds)
     climate = climate or {}
     deltaSeconds = deltaSeconds or self.config.referenceStep
-    local scale = math.clamp(deltaSeconds / self.config.referenceStep, 0.05, 8)
     local totalCells = self.grid.width * self.grid.depth
     local count = math.min(self.config.batchSize, totalCells)
+    -- A cell is only visited once per full batch cycle. Compensate its process
+    -- delta so a 512-cell batch on a 4096-cell world still evolves at world time.
+    local visitsPerCycle = math.max(1, math.ceil(totalCells / math.max(1, count)))
+    local scale = math.clamp(
+        (deltaSeconds / self.config.referenceStep) * visitsPerCycle,
+        0.05,
+        math.max(8, visitsPerCycle)
+    )
     local planned = {}
     local waterDelta = {}
     local touched = {}
@@ -98,9 +103,7 @@ function HydrologySystem:Step(climate, dirtyTracker, deltaSeconds)
         touched[key] = true
         stats.processed += 1
 
-        if self.baseTemperature[key] == nil then
-            self.baseTemperature[key] = cell.temperature or 0.5
-        end
+        if self.baseTemperature[key] == nil then self.baseTemperature[key] = cell.temperature or 0.5 end
         local localTemperature = math.clamp(self.baseTemperature[key] + temperatureOffset, 0, 1)
 
         if cell.biome == "Ocean" then
@@ -158,9 +161,7 @@ function HydrologySystem:Step(climate, dirtyTracker, deltaSeconds)
     end
 
     local keys = {}
-    for key in pairs(touched) do
-        table.insert(keys, key)
-    end
+    for key in pairs(touched) do table.insert(keys, key) end
     table.sort(keys)
 
     for _, key in ipairs(keys) do
@@ -172,17 +173,13 @@ function HydrologySystem:Step(climate, dirtyTracker, deltaSeconds)
             temperature = cell.temperature,
         }
         local nextWater = math.clamp((patch.water or cell.water or 0) + (waterDelta[key] or 0), 0, 1)
-        if cell.biome == "Ocean" then
-            nextWater = 1
-        end
+        if cell.biome == "Ocean" then nextWater = 1 end
         local _, changed = self.grid:UpdateCell(x, z, {
             water = nextWater,
             moisture = math.clamp(patch.moisture or cell.moisture or 0, 0, 1),
             temperature = math.clamp(patch.temperature or cell.temperature or 0.5, 0, 1),
         }, dirtyTracker)
-        if changed then
-            stats.changed += 1
-        end
+        if changed then stats.changed += 1 end
         if nextWater >= 0.10 or (patch.moisture or 0) >= 0.70 then
             stats.wetCells += 1
         elseif (patch.moisture or 0) <= 0.30 then
@@ -192,9 +189,7 @@ function HydrologySystem:Step(climate, dirtyTracker, deltaSeconds)
 
     local oldCursor = self.cursor
     self.cursor = ((self.cursor - 1 + count) % totalCells) + 1
-    if oldCursor + count > totalCells then
-        self.cycle += 1
-    end
+    if oldCursor + count > totalCells then self.cycle += 1 end
     stats.cycle = self.cycle
 
     self.totals.steps += 1
@@ -209,9 +204,7 @@ end
 
 function HydrologySystem:GetTotals()
     local result = {}
-    for key, value in pairs(self.totals) do
-        result[key] = value
-    end
+    for key, value in pairs(self.totals) do result[key] = value end
     result.cursor = self.cursor
     result.cycle = self.cycle
     return result
