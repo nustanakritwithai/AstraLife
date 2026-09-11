@@ -4,41 +4,48 @@ local WorldSimulation = {}
 
 local function ensureFolder(parent, name)
     local existing = parent:FindFirstChild(name)
-    if existing and existing:IsA("Folder") then
-        return existing
-    end
+    if existing and existing:IsA("Folder") then return existing end
     local folder = Instance.new("Folder")
     folder.Name = name
     folder.Parent = parent
     return folder
 end
 
-local function dayState(tick, config)
+local function legacyDayState(tick, config)
     local t = tick % config.DayLengthTicks
     local phase
-    if t < config.DawnEndTick then
-        phase = "Dawn"
-    elseif t < config.DayEndTick then
-        phase = "Day"
-    elseif t < config.DuskEndTick then
-        phase = "Dusk"
-    else
-        phase = "Night"
-    end
-
+    if t < config.DawnEndTick then phase = "Dawn"
+    elseif t < config.DayEndTick then phase = "Day"
+    elseif t < config.DuskEndTick then phase = "Dusk"
+    else phase = "Night" end
     local clockTime = (t / config.DayLengthTicks) * 24
     return phase, clockTime, phase == "Night"
 end
 
-local function weatherState(tick, config)
+local function legacyWeatherState(tick, config)
     local period = math.max(1, config.WeatherPeriodTicks)
     local index = math.floor(tick / period) % #config.WeatherSequence + 1
     return config.WeatherSequence[index]
 end
 
+local function authoritativeEnvironment(tick, config)
+    local living = workspace:FindFirstChild("AstraLivingWorldState")
+    if living
+        and living:GetAttribute("Weather") ~= nil
+        and living:GetAttribute("DayPhase") ~= nil
+    then
+        local phase = living:GetAttribute("DayPhase") or "Dawn"
+        local clockTime = living:GetAttribute("ClimateHour") or 0
+        local weather = living:GetAttribute("Weather") or "Clear"
+        return phase, clockTime, phase == "Night", weather, "LivingWorldW2"
+    end
+
+    local phase, clockTime, isNight = legacyDayState(tick, config)
+    return phase, clockTime, isNight, legacyWeatherState(tick, config), "LegacyP5Fallback"
+end
+
 local function applyLighting(phase, weather, clockTime)
     Lighting.ClockTime = clockTime
-
     if phase == "Night" then
         Lighting.Brightness = 1.2
         Lighting.OutdoorAmbient = Color3.fromRGB(55, 65, 95)
@@ -57,6 +64,10 @@ local function applyLighting(phase, weather, clockTime)
         Lighting.FogEnd = 110
         Lighting.FogColor = Color3.fromRGB(80, 90, 105)
         Lighting.Brightness = math.min(Lighting.Brightness, 1.15)
+    elseif weather == "Cloudy" then
+        Lighting.FogEnd = 420
+        Lighting.FogColor = Color3.fromRGB(145, 150, 160)
+        Lighting.Brightness = math.min(Lighting.Brightness, 2.0)
     else
         Lighting.FogEnd = 100000
     end
@@ -65,9 +76,7 @@ end
 local function ensureDangerZone(config)
     local folder = ensureFolder(workspace, "AstraDangerZones")
     local zone = folder:FindFirstChild("StormField")
-    if zone then
-        return zone
-    end
+    if zone then return zone end
 
     zone = Instance.new("Part")
     zone.Name = "StormField"
@@ -86,9 +95,7 @@ end
 
 local function spawnThreat(worldState, tick, config)
     local current = workspace:FindFirstChild("P5_StormThreat")
-    if current then
-        return current
-    end
+    if current then return current end
 
     local model = Instance.new("Model")
     model.Name = "P5_StormThreat"
@@ -113,7 +120,6 @@ local function spawnThreat(worldState, tick, config)
 
     model.PrimaryPart = root
     model.Parent = workspace
-
     worldState:SetAttribute("P5_ThreatSpawned", true)
     worldState:SetAttribute("DangerActive", true)
     return model
@@ -121,7 +127,6 @@ end
 
 local function updateThreat(worldState, tick, weather, isNight, config)
     local threat = workspace:FindFirstChild("P5_StormThreat")
-
     if threat then
         local expireTick = threat:GetAttribute("ExpireTick") or tick
         if tick >= expireTick then
@@ -130,48 +135,32 @@ local function updateThreat(worldState, tick, weather, isNight, config)
             threat = nil
         end
     end
-
-    if not threat and (weather == "Storm" or isNight) then
-        spawnThreat(worldState, tick, config)
-    end
+    if not threat and (weather == "Storm" or isNight) then spawnThreat(worldState, tick, config) end
 end
 
 local function countBonusNodes(resources)
     local count = 0
     for _, resource in ipairs(resources:GetChildren()) do
-        if resource:GetAttribute("P5Regenerated") == true then
-            count += 1
-        end
+        if resource:GetAttribute("P5Regenerated") == true then count += 1 end
     end
     return count
 end
 
 local function growResource(folders, tick, weather, config)
-    if tick % config.WorldResourceGrowthInterval ~= 0 then
-        return
-    end
-    if countBonusNodes(folders.resources) >= config.WorldResourceMaxBonusNodes then
-        return
-    end
+    if tick % config.WorldResourceGrowthInterval ~= 0 then return end
+    if countBonusNodes(folders.resources) >= config.WorldResourceMaxBonusNodes then return end
 
     local resourceType
-    if weather == "Rain" then
-        resourceType = (tick % 2 == 0) and "Water" or "Food"
-    elseif weather == "Storm" then
-        resourceType = "Water"
-    else
-        resourceType = (tick % 3 == 0) and "Food" or "Wood"
-    end
+    if weather == "Rain" then resourceType = (tick % 2 == 0) and "Water" or "Food"
+    elseif weather == "Storm" then resourceType = "Water"
+    else resourceType = (tick % 3 == 0) and "Food" or "Wood" end
 
     local descriptor = config.ResourceTypes[resourceType]
-    if not descriptor then
-        return
-    end
+    if not descriptor then return end
 
     local index = countBonusNodes(folders.resources) + 1
     local angle = math.rad((tick * 71) % 360)
     local radius = 22 + ((tick * 5) % 18)
-
     local resource = Instance.new("Part")
     resource.Name = string.format("P5_%s_%02d", resourceType, index)
     resource.Shape = Enum.PartType.Ball
@@ -186,6 +175,7 @@ local function growResource(folders, tick, weather, config)
     resource:SetAttribute("Amount", descriptor.yield or 1)
     resource:SetAttribute("ResourceType", resourceType)
     resource:SetAttribute("P5Regenerated", true)
+    resource:SetAttribute("ResourceAuthority", "LegacyCompatibility")
     resource:SetAttribute("SpawnTick", tick)
     resource.Parent = folders.resources
 
@@ -208,24 +198,18 @@ function WorldSimulation.Tick(folders, tick, config)
     local previousPhase = state:GetAttribute("DayPhase")
     local previousWeather = state:GetAttribute("Weather")
 
-    local phase, clockTime, isNight = dayState(tick, config)
-    local weather = weatherState(tick, config)
-
+    local phase, clockTime, isNight, weather, source = authoritativeEnvironment(tick, config)
     state:SetAttribute("DayPhase", phase)
     state:SetAttribute("ClockTime", clockTime)
     state:SetAttribute("IsNight", isNight)
     state:SetAttribute("Weather", weather)
+    state:SetAttribute("P5ClimateSource", source)
     state:SetAttribute("WorldEvent", weather == "Storm" and "StormFront" or (isNight and "NightCycle" or "None"))
 
-    if previousPhase and previousPhase ~= phase then
-        state:SetAttribute("P5_DayNightChanged", true)
-    end
-    if previousWeather and previousWeather ~= weather then
-        state:SetAttribute("P5_WeatherChanged", true)
-    end
-    if weather == "Storm" or isNight then
-        state:SetAttribute("P5_WorldEventTriggered", true)
-    end
+    if previousPhase and previousPhase ~= phase then state:SetAttribute("P5_DayNightChanged", true) end
+    if previousWeather and previousWeather ~= weather then state:SetAttribute("P5_WeatherChanged", true) end
+    if weather == "Storm" or isNight then state:SetAttribute("P5_WorldEventTriggered", true) end
+    if source == "LivingWorldW2" then state:SetAttribute("P5_W2ClimateAdapted", true) end
 
     applyLighting(phase, weather, clockTime)
     updateThreat(state, tick, weather, isNight, config)
