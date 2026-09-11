@@ -3,6 +3,7 @@ local Communication = {}
 local inboxes = setmetatable({}, { __mode = "k" })
 local seenMessages = {}
 local sequence = 0
+local nextCleanupTick = 0
 
 local function getInbox(agent)
     local inbox = inboxes[agent]
@@ -11,6 +12,23 @@ local function getInbox(agent)
         inboxes[agent] = inbox
     end
     return inbox
+end
+
+local function cleanupSeen(currentTick, config)
+    if currentTick < nextCleanupTick then
+        return 0
+    end
+
+    local removed = 0
+    for messageId, expiresTick in pairs(seenMessages) do
+        if currentTick > expiresTick then
+            seenMessages[messageId] = nil
+            removed += 1
+        end
+    end
+
+    nextCleanupTick = currentTick + (config.MessageRegistryCleanupIntervalTicks or 6)
+    return removed
 end
 
 local function nextMessageId(fromAgent, tick, messageType, observationId)
@@ -23,15 +41,20 @@ function Communication.Send(fromAgent, toAgent, tick, messageType, payload, conf
         return false
     end
 
+    cleanupSeen(tick or 0, config)
+
     local messageId = nextMessageId(fromAgent, tick, messageType, payload and payload.observationId)
     if seenMessages[messageId] then
         return false
     end
-    seenMessages[messageId] = true
+
+    local registryTTL = config.MessageRegistryTTL or ((config.MessageTTL or 8) * 3)
+    seenMessages[messageId] = (tick or 0) + registryTTL
 
     local inbox = getInbox(toAgent)
     if #inbox >= (config.MaxMessageQueueSize or 50) then
         table.remove(inbox, 1)
+        toAgent:SetAttribute("DroppedInboxMessages", (toAgent:GetAttribute("DroppedInboxMessages") or 0) + 1)
     end
 
     table.insert(inbox, {
@@ -82,7 +105,9 @@ function Communication.BroadcastStatus(fromAgent, agentsFolder, tick, messageTyp
     return sent
 end
 
-function Communication.ReceiveAll(agent, currentTick)
+function Communication.ReceiveAll(agent, currentTick, config)
+    cleanupSeen(currentTick or 0, config or {})
+
     local inbox = getInbox(agent)
     inboxes[agent] = {}
 
@@ -97,6 +122,26 @@ function Communication.ReceiveAll(agent, currentTick)
     end
 
     return valid, expired
+end
+
+function Communication.Cleanup(currentTick, config)
+    return cleanupSeen(currentTick or 0, config or {})
+end
+
+function Communication.RegistrySize()
+    local count = 0
+    for _ in pairs(seenMessages) do
+        count += 1
+    end
+    return count
+end
+
+function Communication.TotalInboxSize()
+    local total = 0
+    for _, inbox in pairs(inboxes) do
+        total += #inbox
+    end
+    return total
 end
 
 return Communication
