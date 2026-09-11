@@ -1,76 +1,62 @@
 local Planner = {}
 
-local function scoreRoleGoals(role, observations, state, worldResources, constructionAvailable)
-    local scores = {
-        Flee = 0,
-        Rest = 0,
-        GatherResource = -1000,
-        BuildStructure = -1000,
-        Communicate = 0,
-        Explore = 10,
-    }
+local function hasResourceKnowledge(state, observations)
+    if #observations.resources > 0 then
+        return true
+    end
+    if state.resourceReport then
+        return true
+    end
+    return false
+end
 
+function Planner.ChooseGoal(state, observations, construction, resourceEconomy, config)
     if #observations.threats > 0 then
-        scores.Flee = 100 + (100 - state.needs.safety)
+        return "Flee", 100
     end
 
-    if state.needs.energy <= state.config.EnergyLow then
-        scores.Rest = 80 + (state.config.EnergyLow - state.needs.energy)
+    if state.needs.energy <= config.EnergyLow then
+        return "Rest", 90
     end
 
-    if role == state.config.Roles.Scout then
-        scores.Explore = 85
-        if #observations.resources > 0 or #observations.agents > 0 then
-            scores.Communicate = 78
+    if state.role == config.Roles.Gatherer then
+        if state.inventory:GetTotal() > 0 and (state.inventory:IsFull() or not hasResourceKnowledge(state, observations)) then
+            return "DepositResources", 95
         end
-    elseif role == state.config.Roles.Gatherer then
-        scores.Explore = 20
-        if #observations.resources > 0 or state.resourceReport then
-            scores.GatherResource = 96
+
+        if hasResourceKnowledge(state, observations) and not state.inventory:IsFull() then
+            return "GatherResource", 90
         end
-    elseif role == state.config.Roles.Builder then
-        scores.Explore = 15
-        if constructionAvailable and worldResources > 0 then
-            scores.BuildStructure = 100
-        else
-            scores.Communicate = 45
+
+        if state.inventory:GetTotal() > 0 then
+            return "DepositResources", 80
         end
-    else
-        scores.Explore = 65
+
+        return "Explore", 40
     end
 
-    return scores
-end
-
-function Planner.ChooseGoal(role, observations, state, worldResources, constructionAvailable)
-    local scores = scoreRoleGoals(role, observations, state, worldResources, constructionAvailable)
-    local bestGoal = "Explore"
-    local bestScore = -math.huge
-
-    for goal, score in pairs(scores) do
-        if score > bestScore then
-            bestGoal = goal
-            bestScore = score
+    if state.role == config.Roles.Builder then
+        local active = construction.GetActive()
+        if active then
+            return "BuildStructure", 95
         end
+
+        local blueprint = construction.GetNextBlueprint(state.folders, config)
+        if blueprint and resourceEconomy.CanAfford(state.folders.state, blueprint.recipe) then
+            return "BuildStructure", 90
+        end
+
+        return "Communicate", 45
     end
 
-    return bestGoal, bestScore, scores
-end
-
-function Planner.MakePlan(goal)
-    if goal == "Flee" then
-        return { "SelectThreat", "MoveAway" }
-    elseif goal == "Rest" then
-        return { "Stop", "RecoverEnergy" }
-    elseif goal == "GatherResource" then
-        return { "SelectResource", "MoveToResource", "CollectResource" }
-    elseif goal == "BuildStructure" then
-        return { "SelectBlueprint", "MoveToBuildSite", "BuildStep" }
-    elseif goal == "Communicate" then
-        return { "SelectMessage", "SendMessage" }
+    if state.role == config.Roles.Scout then
+        if #observations.resources > 0 then
+            return "Communicate", 85
+        end
+        return "Explore", 80
     end
 
-    return { "Explore" }
+    return "Explore", 50
 end
 
 return Planner
