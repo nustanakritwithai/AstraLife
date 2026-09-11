@@ -1,0 +1,38 @@
+name: Build AstraLife Roblox P7 Living World
+
+on:
+  push:
+    branches:
+      - feat/roblox-p7-living-world-latest
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-p7-living-world-build.yml"
+  pull_request:
+    branches:
+      - feat/roblox-p7-skill-learning
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-p7-living-world-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+      - name: Build Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-P7-LivingWorld.rbxl
+      - name: Upload latest place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-P7-LivingWorld-Latest
+          path: AstraLife-P7-LivingWorld.rbxl
+          if-no-files-found: error
+          retention-days: 14
