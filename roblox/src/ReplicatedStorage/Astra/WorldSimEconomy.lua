@@ -31,7 +31,7 @@ local function buildMissing(state, resourceType)
     return math.max(0, required - delivered)
 end
 
-function WorldSimEconomy.Update(folders, marketFolder)
+function WorldSimEconomy.Update(folders, marketFolder, climateFolder)
     local state = folders.state
     local pop = population(folders.agents)
     local needFood = countNeed(folders.agents, "NeedFood")
@@ -40,11 +40,17 @@ function WorldSimEconomy.Update(folders, marketFolder)
     local capacity = math.max(1, state:GetAttribute("StorageCapacity") or 40)
     local total = state:GetAttribute("StockTotal") or 0
     local crowding = clamp(pop / 8, 0, 2)
+    local cropMultiplier = climateFolder and (climateFolder:GetAttribute("CropMultiplier") or 1) or 1
     local volatilityTotal = 0
     local scarcityTotal = 0
 
     for _, resourceType in ipairs(TYPES) do
         local stock = state:GetAttribute("Stock_" .. resourceType) or 0
+        local effectiveStock = stock
+        if resourceType == "Food" then
+            effectiveStock = stock * clamp(cropMultiplier, 0.25, 1.4)
+        end
+
         local demand = math.max(1, pop * 0.75 + buildMissing(state, resourceType))
         if resourceType == "Food" then demand += needFood * 3 end
         if resourceType == "Water" then demand += needWater * 3 end
@@ -52,7 +58,7 @@ function WorldSimEconomy.Update(folders, marketFolder)
             demand += (state:GetAttribute("ActiveBuildId") or "None") ~= "None" and 2 or 0
         end
 
-        local scarcity = clamp(demand / math.max(stock, 1), 0.25, 6)
+        local scarcity = clamp(demand / math.max(effectiveStock, 1), 0.25, 6)
         local dangerMod = 1 + danger * 0.35
         local crowdFoodMod = resourceType == "Food" and (1 + math.max(0, crowding - 0.9) * 0.45) or 1
         local price = BASE_PRICE[resourceType] * (scarcity ^ 0.75) * dangerMod * crowdFoodMod
@@ -66,6 +72,7 @@ function WorldSimEconomy.Update(folders, marketFolder)
         marketFolder:SetAttribute("Demand_" .. resourceType, math.floor(demand * 100 + 0.5) / 100)
         marketFolder:SetAttribute("Scarcity_" .. resourceType, math.floor(scarcity * 1000 + 0.5) / 1000)
         marketFolder:SetAttribute("Price_" .. resourceType, math.floor(price * 100 + 0.5) / 100)
+        marketFolder:SetAttribute("EffectiveStock_" .. resourceType, math.floor(effectiveStock * 100 + 0.5) / 100)
     end
 
     local storageHealth = clamp(total / capacity, 0, 1)
@@ -78,6 +85,7 @@ function WorldSimEconomy.Update(folders, marketFolder)
     marketFolder:SetAttribute("TradeHealth", math.floor(tradeHealth * 10 + 0.5) / 10)
     marketFolder:SetAttribute("FoodNeedCount", needFood)
     marketFolder:SetAttribute("WaterNeedCount", needWater)
+    marketFolder:SetAttribute("CropMultiplier", math.floor(cropMultiplier * 1000 + 0.5) / 1000)
 
     return {
         population = pop,
