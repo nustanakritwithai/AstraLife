@@ -112,10 +112,13 @@ function Perception.Observe(agent, folders, config, tick)
         environment = environment,
     }
 
+    local resourceRange = config.ResourceRange * (agent:GetAttribute("P7_ResourceRangeMultiplier") or 1)
+    agent:SetAttribute("EffectiveResourceRange", resourceRange)
+
     for _, resource in ipairs(folders.resources:GetChildren()) do
         if resource:IsA("BasePart") and resource:GetAttribute("Active") ~= false then
             local distance = (resource.Position - root.Position).Magnitude
-            if distance <= config.ResourceRange then
+            if distance <= resourceRange then
                 table.insert(observations.resources, resourceObservation(agent, resource, distance, tick, config))
             end
         end
