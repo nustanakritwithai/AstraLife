@@ -27,7 +27,8 @@ end
 local function effectiveDanger(cell)
     return math.max(
         math.clamp(cell.danger or 0, 0, 1),
-        math.clamp(cell.hazardDanger or 0, 0, 1)
+        math.clamp(cell.hazardDanger or 0, 0, 1),
+        math.clamp(cell.ecosystemDanger or 0, 0, 1)
     )
 end
 
@@ -44,6 +45,9 @@ local function baseFacts(cell, options)
 
     return config, {
         danger = danger,
+        baseDanger = math.clamp(cell.danger or 0, 0, 1),
+        hazardDanger = math.clamp(cell.hazardDanger or 0, 0, 1),
+        ecosystemDanger = math.clamp(cell.ecosystemDanger or 0, 0, 1),
         hazardBlocked = hazardBlocked,
         terrainWalkable = terrainWalkable,
         slope = slope,
