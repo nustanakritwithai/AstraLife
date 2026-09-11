@@ -99,20 +99,61 @@ local function directMove(state, position, speed)
     state.humanoid:MoveTo(position)
 end
 
-local function pathMove(state, position)
+local function samePathTarget(state, position)
+    return state.lastPathTarget
+        and (state.lastPathTarget - position).Magnitude <= (Config.PathTargetChangeDistance or 4)
+end
+
+local function followCachedPath(state)
+    local waypoints = state.cachedWaypoints
+    local index = state.cachedWaypointIndex or 2
+    if not waypoints or #waypoints < index then return false end
+
+    while index <= #waypoints and (waypoints[index].Position - state.root.Position).Magnitude <= 3 do
+        index += 1
+    end
+    state.cachedWaypointIndex = index
+
+    local waypoint = waypoints[index]
+    if not waypoint then return false end
+    if waypoint.Action == Enum.PathWaypointAction.Jump then state.humanoid.Jump = true end
+    directMove(state, waypoint.Position, Config.WalkSpeed)
+    state.pathCacheHits += 1
+    debug(state.agent, "PathCacheHits", state.pathCacheHits)
+    return true
+end
+
+local function pathMove(state, position, force)
+    local interval = Config.PathRecomputeIntervalTicks or 2
+    if not force
+        and samePathTarget(state, position)
+        and state.lastPathComputeTick
+        and state.tick - state.lastPathComputeTick < interval
+        and followCachedPath(state)
+    then
+        return true
+    end
+
     local path = PathfindingService:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, AgentCanClimb = true, WaypointSpacing = 4})
     local ok = pcall(function() path:ComputeAsync(state.root.Position, position) end)
+
+    state.pathComputeCount += 1
+    state.lastPathComputeTick = state.tick
+    state.lastPathTarget = position
+    debug(state.agent, "PathComputeCount", state.pathComputeCount)
+
     if not ok or path.Status ~= Enum.PathStatus.Success then
+        state.cachedWaypoints = nil
+        state.cachedWaypointIndex = nil
         directMove(state, position, Config.WalkSpeed)
         return false
     end
+
     local waypoints = path:GetWaypoints()
-    if #waypoints >= 2 then
-        local waypoint = waypoints[2]
-        if waypoint.Action == Enum.PathWaypointAction.Jump then state.humanoid.Jump = true end
-        directMove(state, waypoint.Position, Config.WalkSpeed)
-        return true
-    end
+    state.cachedWaypoints = waypoints
+    state.cachedWaypointIndex = 2
+    if followCachedPath(state) then return true end
+
     directMove(state, position, Config.WalkSpeed)
     return true
 end
@@ -123,6 +164,12 @@ local function deterministicExplorePosition(state)
     local angle = math.rad((seed + state.tick * 137) % 360)
     local radius = 12 + ((seed + state.tick * 7) % 20)
     return state.homePosition + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+end
+
+local function cleanupExpiringMap(map, tick)
+    for key, expiresTick in pairs(map) do
+        if type(expiresTick) == "number" and tick > expiresTick then map[key] = nil end
+    end
 end
 
 local function removeReport(state, report)
@@ -147,20 +194,24 @@ local function invalidateReport(state, report, reason, broadcast)
 end
 
 local function processMessages(state)
-    local messages, expired = Communication.ReceiveAll(state.agent, state.tick)
+    local messages, expired = Communication.ReceiveAll(state.agent, state.tick, Config)
     debug(state.agent, "CommunicationInboxSize", #messages)
     state.expiredMessages += expired or 0
+
     for _, message in ipairs(messages) do
-        if state.processedMessages[message.messageId] then
+        local messageUntil = state.processedMessages[message.messageId]
+        if messageUntil and messageUntil >= state.tick then
             state.duplicateMessages += 1
             continue
         end
-        state.processedMessages[message.messageId] = true
+        state.processedMessages[message.messageId] = state.tick + Config.MessageTTL * 2
         debug(state.agent, "LastMessageReceived", message.messageId)
+
         if message.type == "resource_report" and state.role == Config.Roles.Gatherer then
             local payload = message.payload
-            if not state.processedObservations[payload.observationId] then
-                state.processedObservations[payload.observationId] = true
+            local observationUntil = state.processedObservations[payload.observationId]
+            if not observationUntil or observationUntil < state.tick then
+                state.processedObservations[payload.observationId] = state.tick + Config.SharedKnowledgeTTL * 2
                 local expiresTick = state.tick + Config.SharedKnowledgeTTL
                 local report = {
                     observationId = payload.observationId, resourceId = payload.resourceId, resourceType = payload.resourceType,
@@ -190,6 +241,7 @@ local function processMessages(state)
             end
         end
     end
+
     debug(state.agent, "DuplicateMessagesDropped", state.duplicateMessages)
     debug(state.agent, "ExpiredBeliefs", state.expiredMessages)
 end
@@ -286,7 +338,6 @@ local function selectGatherTarget(state, observations)
     return observations.resources[1]
 end
 
--- Returns true when Build Site delivery owns this tick, including while walking to the site.
 local function deliverMaterials(state)
     if state.role ~= Config.Roles.Gatherer then return false end
     local active = Construction.GetActive()
@@ -477,7 +528,11 @@ local function updateStuck(state)
     else state.stuckTicks = 0 end
     state.lastPosition = state.root.Position
     debug(state.agent, "StuckTicks", state.stuckTicks)
-    if state.stuckTicks >= Config.StuckTicksBeforePath and state.targetPosition then think(state, "เส้นทางติด → คำนวณใหม่") pathMove(state, state.targetPosition) state.stuckTicks = 0 end
+    if state.stuckTicks >= Config.StuckTicksBeforePath and state.targetPosition then
+        think(state, "เส้นทางติด → คำนวณใหม่")
+        pathMove(state, state.targetPosition, true)
+        state.stuckTicks = 0
+    end
 end
 
 local function executeGoal(state, goal, observations)
@@ -522,6 +577,8 @@ function Brain.Start(agent)
         lastThought = "", resourceReport = nil, resourceReports = {}, preferredResourceType = nil,
         processedMessages = {}, processedObservations = {}, duplicateMessages = 0, expiredMessages = 0,
         lastReportedResource = {}, needs = Needs.Create(Config),
+        lastPathTarget = nil, lastPathComputeTick = nil, cachedWaypoints = nil, cachedWaypointIndex = nil,
+        pathComputeCount = 0, pathCacheHits = 0,
     }
 
     runningAgents[agent] = state
@@ -529,10 +586,12 @@ function Brain.Start(agent)
     debug(agent, "RuntimeVersion", Config.RuntimeVersion)
     debug(agent, "DuplicateMessagesDropped", 0)
     debug(agent, "ExpiredBeliefs", 0)
+    debug(agent, "PathComputeCount", 0)
+    debug(agent, "PathCacheHits", 0)
     updateInventoryDebug(state)
     Needs.SyncAgent(agent, state.needs, Config)
     if role ~= Config.Roles.Gatherer then folders.state:SetAttribute("P1_RoleGuards", true) end
-    think(state, "AstraBrain P4 Survival online")
+    think(state, "AstraBrain P7.5 Scale12 online")
     humanoid.Died:Connect(function() runningAgents[agent] = nil end)
 
     task.spawn(function()
@@ -542,6 +601,16 @@ function Brain.Start(agent)
             state.localDecisionTick += 1
             debug(agent, "Tick", state.tick)
             debug(agent, "LocalDecisionTick", state.localDecisionTick)
+
+            local liveRole = agent:GetAttribute("Role")
+            if liveRole and liveRole ~= "Unassigned" and liveRole ~= state.role then
+                state.role = liveRole
+                debug(agent, "BrainRole", liveRole)
+                debug(agent, "BrainRoleSyncTick", state.tick)
+            end
+
+            cleanupExpiringMap(state.processedMessages, state.tick)
+            cleanupExpiringMap(state.processedObservations, state.tick)
 
             local expiredReports = {}
             for _, report in pairs(state.resourceReports) do if state.tick > report.expiresTick then table.insert(expiredReports, report) end end
@@ -558,7 +627,7 @@ function Brain.Start(agent)
 
             state.expiredMessages += state.belief:Decay(state.tick)
             debug(agent, "ExpiredBeliefs", state.expiredMessages)
-            if role == Config.Roles.Scout then scoutReport(state, observations) end
+            if state.role == Config.Roles.Scout then scoutReport(state, observations) end
             debug(agent, "KnownResourceCount", SharedKnowledge.ActiveCount(state.tick))
 
             local goal, score = Planner.ChooseGoal(state, observations, Construction, ResourceEconomy, Config)
