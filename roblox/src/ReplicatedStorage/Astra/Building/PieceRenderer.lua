@@ -1,8 +1,38 @@
 local BuildPieceCatalog = require(script.Parent.BuildPieceCatalog)
+local MaterialGradeCatalog = require(script.Parent.MaterialGradeCatalog)
 
 local PieceRenderer = {}
 
+local function ensureLifecycle(piece)
+    local grade = piece.materialGrade
+    if not MaterialGradeCatalog.IsValid(grade) then
+        grade = MaterialGradeCatalog.DefaultGrade()
+        piece.materialGrade = grade
+    end
+    local expectedMax = MaterialGradeCatalog.MaxHealth(piece.pieceType, grade) or 1
+    if piece.maxHealth == nil or piece.maxHealth <= 0 then piece.maxHealth = expectedMax end
+    if piece.health == nil then piece.health = piece.maxHealth end
+    piece.health = math.clamp(piece.health, 0, piece.maxHealth)
+    piece.destroyed = piece.destroyed == true or piece.health <= 0
+end
+
+local function applyLifecycleAttributes(instance, piece)
+    instance:SetAttribute("MaterialGrade", piece.materialGrade)
+    instance:SetAttribute("Health", piece.health)
+    instance:SetAttribute("MaxHealth", piece.maxHealth)
+    instance:SetAttribute("HealthPercent", piece.maxHealth > 0 and piece.health / piece.maxHealth or 0)
+    instance:SetAttribute("Destroyed", piece.destroyed == true)
+end
+
+local function applyVisual(part, piece)
+    local visual = MaterialGradeCatalog.Visual(piece.materialGrade)
+    part.Material = visual.material
+    part.Color = visual.color
+    part.Transparency = visual.transparency
+end
+
 local function configure(part, piece, name)
+    ensureLifecycle(piece)
     part.Name = name or piece.pieceType
     part.Anchored = true
     part.CanCollide = true
@@ -11,24 +41,27 @@ local function configure(part, piece, name)
     part:SetAttribute("PieceId", piece.id)
     part:SetAttribute("PieceType", piece.pieceType)
     part:SetAttribute("Stability", piece.stability)
+    applyLifecycleAttributes(part, piece)
+    applyVisual(part, piece)
 end
 
 local function basicPart(piece, size, offset)
     local part = Instance.new("Part")
     part.Size = size
     part.CFrame = piece.cframe * (offset or CFrame.new())
-    part.Material = Enum.Material.WoodPlanks
     configure(part, piece)
     return part
 end
 
 local function frameModel(piece, isDoor)
+    ensureLifecycle(piece)
     local model = Instance.new("Model")
     model.Name = piece.pieceType .. "_" .. piece.id
     model:SetAttribute("IsModularBuildPiece", true)
     model:SetAttribute("PieceId", piece.id)
     model:SetAttribute("PieceType", piece.pieceType)
     model:SetAttribute("Stability", piece.stability)
+    applyLifecycleAttributes(model, piece)
 
     local pieces = {}
     local function beam(name, size, offset)
@@ -55,12 +88,14 @@ local function frameModel(piece, isDoor)
 end
 
 local function stairsModel(piece)
+    ensureLifecycle(piece)
     local model = Instance.new("Model")
     model.Name = piece.pieceType .. "_" .. piece.id
     model:SetAttribute("IsModularBuildPiece", true)
     model:SetAttribute("PieceId", piece.id)
     model:SetAttribute("PieceType", piece.pieceType)
     model:SetAttribute("Stability", piece.stability)
+    applyLifecycleAttributes(model, piece)
 
     local steps = 8
     local stepHeight = 8 / steps
@@ -82,6 +117,7 @@ local function stairsModel(piece)
 end
 
 function PieceRenderer.Create(piece)
+    ensureLifecycle(piece)
     local definition = BuildPieceCatalog.Get(piece.pieceType)
     assert(definition, "unknown piece type")
 
@@ -105,7 +141,6 @@ function PieceRenderer.Create(piece)
         part = Instance.new("WedgePart")
         part.Size = definition.size
         part.CFrame = piece.cframe * offset
-        part.Material = Enum.Material.WoodPlanks
         configure(part, piece)
     else
         part = basicPart(piece, definition.size, offset)
@@ -119,6 +154,21 @@ function PieceRenderer.UpdateStability(instance, stability)
     for _, descendant in ipairs(instance:GetDescendants()) do
         if descendant:IsA("BasePart") then
             descendant:SetAttribute("Stability", stability)
+        end
+    end
+end
+
+function PieceRenderer.UpdateLifecycle(instance, piece)
+    if not instance or not piece then return end
+    ensureLifecycle(piece)
+    applyLifecycleAttributes(instance, piece)
+    if instance:IsA("BasePart") then
+        applyVisual(instance, piece)
+    end
+    for _, descendant in ipairs(instance:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            applyLifecycleAttributes(descendant, piece)
+            applyVisual(descendant, piece)
         end
     end
 end
