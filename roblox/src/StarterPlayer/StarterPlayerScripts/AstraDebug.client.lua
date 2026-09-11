@@ -1,21 +1,16 @@
 local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-local worldState = workspace:WaitForChild("AstraWorldState")
-local agents = workspace:WaitForChild("AstraAgents")
-
 local gui = Instance.new("ScreenGui")
-gui.Name = "AstraDebugUI"
+gui.Name = "AstraDebugGui"
 gui.ResetOnSpawn = false
-gui.Parent = playerGui
+gui.Parent = player:WaitForChild("PlayerGui")
 
 local panel = Instance.new("Frame")
-panel.Name = "Panel"
-panel.Size = UDim2.fromOffset(360, 250)
+panel.Size = UDim2.fromOffset(390, 300)
 panel.Position = UDim2.fromOffset(16, 16)
-panel.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
-panel.BackgroundTransparency = 0.12
+panel.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Parent = gui
 
@@ -23,89 +18,68 @@ local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 12)
 corner.Parent = panel
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 34)
-title.Position = UDim2.fromOffset(10, 8)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBold
-title.TextSize = 22
-title.TextColor3 = Color3.fromRGB(245, 248, 255)
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "AstraLife / Rojo"
-title.Parent = panel
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, -16, 1, -16)
+label.Position = UDim2.fromOffset(8, 8)
+label.BackgroundTransparency = 1
+label.TextXAlignment = Enum.TextXAlignment.Left
+label.TextYAlignment = Enum.TextYAlignment.Top
+label.TextColor3 = Color3.fromRGB(235, 242, 255)
+label.Font = Enum.Font.Code
+label.TextSize = 16
+label.TextWrapped = false
+label.Parent = panel
 
-local summary = Instance.new("TextLabel")
-summary.Size = UDim2.new(1, -20, 0, 66)
-summary.Position = UDim2.fromOffset(10, 44)
-summary.BackgroundTransparency = 1
-summary.Font = Enum.Font.Code
-summary.TextSize = 16
-summary.TextColor3 = Color3.fromRGB(210, 220, 235)
-summary.TextXAlignment = Enum.TextXAlignment.Left
-summary.TextYAlignment = Enum.TextYAlignment.Top
-summary.TextWrapped = true
-summary.Parent = panel
+local function attr(instance, name, default)
+    local value = instance and instance:GetAttribute(name)
+    if value == nil then
+        return default
+    end
+    return value
+end
 
-local agentText = Instance.new("TextLabel")
-agentText.Size = UDim2.new(1, -20, 1, -120)
-agentText.Position = UDim2.fromOffset(10, 112)
-agentText.BackgroundTransparency = 1
-agentText.Font = Enum.Font.Code
-agentText.TextSize = 14
-agentText.TextColor3 = Color3.fromRGB(195, 210, 225)
-agentText.TextXAlignment = Enum.TextXAlignment.Left
-agentText.TextYAlignment = Enum.TextYAlignment.Top
-agentText.TextWrapped = false
-agentText.Parent = panel
-
-local function update()
-    summary.Text = string.format(
-        "TeamResources: %d\nBuild: %s / %s / %d%% | WorldTick: %d",
-        worldState:GetAttribute("TeamResources") or 0,
-        worldState:GetAttribute("BuildStatus") or "Idle",
-        worldState:GetAttribute("ActiveBuildId") or "None",
-        worldState:GetAttribute("BuildProgress") or 0,
-        worldState:GetAttribute("WorldTick") or 0
+local function agentLine(agent)
+    if not agent then
+        return "-"
+    end
+    return string.format(
+        "%s [%s] Goal=%s Carry=%s/%s",
+        agent.Name,
+        tostring(attr(agent, "Role", "?")),
+        tostring(attr(agent, "Goal", "?")),
+        tostring(attr(agent, "CarryTotal", 0)),
+        tostring(attr(agent, "CarryCapacity", 0))
     )
-
-    local lines = {}
-    for _, agent in ipairs(agents:GetChildren()) do
-        if agent:IsA("Model") then
-            table.insert(lines, string.format(
-                "%s [%s]  Goal=%s  Energy=%s",
-                agent.Name,
-                agent:GetAttribute("Role") or "?",
-                agent:GetAttribute("Goal") or "?",
-                tostring(agent:GetAttribute("Energy") or "?")
-            ))
-        end
-    end
-    table.sort(lines)
-    agentText.Text = table.concat(lines, "\n")
 end
 
-for _, attribute in ipairs({
-    "TeamResources",
-    "BuildStatus",
-    "ActiveBuildId",
-    "BuildProgress",
-    "WorldTick",
-}) do
-    worldState:GetAttributeChangedSignal(attribute):Connect(update)
-end
+while task.wait(0.5) do
+    local state = workspace:FindFirstChild("AstraWorldState")
+    local agents = workspace:FindFirstChild("AstraAgents")
 
-agents.ChildAdded:Connect(function()
-    task.wait(0.2)
-    update()
-end)
-
-agents.ChildRemoved:Connect(update)
-
-task.spawn(function()
-    while gui.Parent do
-        task.wait(0.5)
-        update()
+    if not state then
+        label.Text = "AstraLife: waiting for AstraWorldState..."
+        continue
     end
-end)
 
-update()
+    local scout = agents and agents:FindFirstChild("AstraScout")
+    local gatherer = agents and agents:FindFirstChild("AstraGatherer")
+    local builder = agents and agents:FindFirstChild("AstraBuilder")
+
+    local lines = {
+        "ASTRALIFE ROBLOX " .. tostring(attr(state, "Version", "?")),
+        string.format("Tick: %s   P1: %s   P2: %s", attr(state, "WorldTick", 0), attr(state, "P1Status", "?"), attr(state, "P2Status", "?")),
+        "",
+        string.format("STOCK  Wood:%s  Stone:%s  Food:%s  Water:%s", attr(state, "Stock_Wood", 0), attr(state, "Stock_Stone", 0), attr(state, "Stock_Food", 0), attr(state, "Stock_Water", 0)),
+        string.format("Storage: %s/%s", attr(state, "StockTotal", 0), attr(state, "StorageCapacity", 0)),
+        string.format("Build: %s  %s%%", attr(state, "ActiveBuildId", "None"), attr(state, "BuildProgress", 0)),
+        "",
+        agentLine(scout),
+        agentLine(gatherer),
+        agentLine(builder),
+        "",
+        string.format("P1: sent=%s recv=%s belief75=%s remote=%s verify=%s collect=%s", tostring(attr(state, "P1_ScoutSent", false)), tostring(attr(state, "P1_GathererReceived", false)), tostring(attr(state, "P1_Belief75", false)), tostring(attr(state, "P1_RemoteGoal", false)), tostring(attr(state, "P1_Verified100", false)), tostring(attr(state, "P1_Collected", false))),
+        string.format("P2: carry=%s deposit=%s recipe=%s storage=%s", tostring(attr(state, "P2_CarryObserved", false)), tostring(attr(state, "P2_DepositObserved", false)), tostring(attr(state, "P2_BuilderSpentRecipe", false)), tostring(attr(state, "P2_StorageReady", false))),
+    }
+
+    label.Text = table.concat(lines, "\n")
+end
