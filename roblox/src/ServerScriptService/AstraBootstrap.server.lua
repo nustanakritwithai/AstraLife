@@ -11,10 +11,7 @@ local folders = WorldState.Ensure(Config)
 ResourceEconomy.Ensure(folders.state, Config.StorageCapacity)
 
 local function ensureBaseplate()
-    if workspace:FindFirstChild("AstraBaseplate") then
-        return
-    end
-
+    if workspace:FindFirstChild("AstraBaseplate") then return end
     local baseplate = Instance.new("Part")
     baseplate.Name = "AstraBaseplate"
     baseplate.Size = Vector3.new(220, 1, 220)
@@ -26,10 +23,7 @@ local function ensureBaseplate()
 end
 
 local function ensureSpawn()
-    if workspace:FindFirstChildOfClass("SpawnLocation") then
-        return
-    end
-
+    if workspace:FindFirstChildOfClass("SpawnLocation") then return end
     local spawn = Instance.new("SpawnLocation")
     spawn.Name = "PlayerSpawn"
     spawn.Size = Vector3.new(6, 1, 6)
@@ -59,13 +53,8 @@ local function createResource(index, resourceType, position)
 end
 
 local function ensureResources()
-    if not Config.CreateDemoResources or #folders.resources:GetChildren() > 0 then
-        return
-    end
+    if not Config.CreateDemoResources or #folders.resources:GetChildren() > 0 then return end
 
-    -- Deterministic P1-P3 acceptance layout.
-    -- Scout can discover remote Wood while Gatherer also has requested materials
-    -- available around the colony for Build Site delivery.
     local specs = {
         {"Wood",  1, Vector3.new(-30, 1.2, 0)},
         {"Wood",  2, Vector3.new(-24, 1.2, 10)},
@@ -124,13 +113,17 @@ local function createR15Agent(name, role, position)
 end
 
 local function ensureAgents()
-    if not Config.CreateDemoAgents or #folders.agents:GetChildren() > 0 then
-        return
-    end
-
+    if not Config.CreateDemoAgents or #folders.agents:GetChildren() > 0 then return end
     createR15Agent("AstraScout", Config.Roles.Scout, Vector3.new(-20, 3, 0))
     createR15Agent("AstraGatherer", Config.Roles.Gatherer, Vector3.new(10, 3, 0))
     createR15Agent("AstraBuilder", Config.Roles.Builder, Vector3.new(2, 3, 8))
+end
+
+local function seedSurvivalStock()
+    if folders.state:GetAttribute("P4_SurvivalStockSeeded") == true then return end
+    ResourceEconomy.DepositToStorage(folders.state, "Food", Config.DemoStartingFood)
+    ResourceEconomy.DepositToStorage(folders.state, "Water", Config.DemoStartingWater)
+    folders.state:SetAttribute("P4_SurvivalStockSeeded", true)
 end
 
 ensureBaseplate()
@@ -147,8 +140,10 @@ folders.state:SetAttribute("P3_RequestMode", Config.P3RequestMode == true)
 folders.state:SetAttribute("P1Status", "RUNNING")
 folders.state:SetAttribute("P2Status", "RUNNING")
 folders.state:SetAttribute("P3Status", "RUNNING")
+folders.state:SetAttribute("P4Status", "RUNNING")
 
 ensureResources()
 ensureAgents()
+seedSurvivalStock()
 
-print("[AstraLife] Roblox Rojo P3 Construction V2 world bootstrapped")
+print("[AstraLife] Roblox Rojo P4 Survival world bootstrapped")
