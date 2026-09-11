@@ -63,9 +63,9 @@ local function ensureResources()
         return
     end
 
-    -- P1/P2 deterministic acceptance layout:
-    -- Scout starts at -20 X, Gatherer at +10 X.
-    -- Wood_01 is visible to Scout (10 studs) but outside Gatherer ResourceRange (40 studs).
+    -- Deterministic P1-P3 acceptance layout.
+    -- Scout can discover remote Wood while Gatherer also has requested materials
+    -- available around the colony for Build Site delivery.
     local specs = {
         {"Wood",  1, Vector3.new(-30, 1.2, 0)},
         {"Wood",  2, Vector3.new(-24, 1.2, 10)},
@@ -143,10 +143,12 @@ end
 
 folders.state:SetAttribute("Runtime", "Rojo")
 folders.state:SetAttribute("Version", Config.RuntimeVersion)
+folders.state:SetAttribute("P3_RequestMode", Config.P3RequestMode == true)
 folders.state:SetAttribute("P1Status", "RUNNING")
 folders.state:SetAttribute("P2Status", "RUNNING")
+folders.state:SetAttribute("P3Status", "RUNNING")
 
 ensureResources()
 ensureAgents()
 
-print("[AstraLife] Roblox Rojo P2 world bootstrapped")
+print("[AstraLife] Roblox Rojo P3 Construction V2 world bootstrapped")
