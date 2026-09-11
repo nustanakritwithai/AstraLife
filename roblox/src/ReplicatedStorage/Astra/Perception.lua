@@ -26,6 +26,47 @@ local function resourceObservation(agent, resource, distance, tick, config)
     }
 end
 
+local function prioritizeBuildMaterials(agent, folders, resources)
+    if agent:GetAttribute("Role") ~= "Gatherer" then
+        sortByDistance(resources)
+        return
+    end
+
+    local activeBuild = folders.state:GetAttribute("ActiveBuildId") or "None"
+    local ready = folders.state:GetAttribute("P3_MaterialsReady") == true
+
+    if activeBuild == "None" or ready then
+        sortByDistance(resources)
+        return
+    end
+
+    table.sort(resources, function(a, b)
+        local aMissing = math.max(
+            0,
+            (folders.state:GetAttribute("P3_Required_" .. a.subtype) or 0)
+                - (folders.state:GetAttribute("P3_Delivered_" .. a.subtype) or 0)
+        )
+        local bMissing = math.max(
+            0,
+            (folders.state:GetAttribute("P3_Required_" .. b.subtype) or 0)
+                - (folders.state:GetAttribute("P3_Delivered_" .. b.subtype) or 0)
+        )
+
+        local aRequested = aMissing > 0
+        local bRequested = bMissing > 0
+
+        if aRequested ~= bRequested then
+            return aRequested
+        end
+
+        if aRequested and bRequested and aMissing ~= bMissing then
+            return aMissing > bMissing
+        end
+
+        return a.distance < b.distance
+    end)
+end
+
 function Perception.Observe(agent, folders, config, tick)
     local root = agent:FindFirstChild("HumanoidRootPart")
     if not root then
@@ -96,7 +137,7 @@ function Perception.Observe(agent, folders, config, tick)
         end
     end
 
-    sortByDistance(observations.resources)
+    prioritizeBuildMaterials(agent, folders, observations.resources)
     sortByDistance(observations.agents)
     sortByDistance(observations.threats)
     sortByDistance(observations.players)
