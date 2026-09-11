@@ -44,11 +44,22 @@ end
 
 function Needs.Tick(needs, humanoid, hasThreat, config)
     local hungerMult, thirstMult, energyMult, environmentSafetyLoss = environmentMultipliers(humanoid, config)
+    local agent = humanoid and humanoid.Parent
+    local learnedDecay = agent and agent:GetAttribute("P7_SurvivalDecayMultiplier") or 1
+    learnedDecay = math.clamp(learnedDecay, config.P7MinSurvivalDecayMultiplier or 0.70, 1)
 
-    needs.hunger = clamp100(needs.hunger - config.HungerDecayPerTick * hungerMult)
-    needs.thirst = clamp100(needs.thirst - config.ThirstDecayPerTick * thirstMult)
-    needs.energy = clamp100(needs.energy - config.EnergyDecayPerTick * energyMult)
-    needs.social = clamp100(needs.social - config.SocialDecayPerTick)
+    needs.hunger = clamp100(needs.hunger - config.HungerDecayPerTick * hungerMult * learnedDecay)
+    needs.thirst = clamp100(needs.thirst - config.ThirstDecayPerTick * thirstMult * learnedDecay)
+    needs.energy = clamp100(needs.energy - config.EnergyDecayPerTick * energyMult * learnedDecay)
+    needs.social = clamp100(needs.social - config.SocialDecayPerTick * learnedDecay)
+
+    if agent and learnedDecay < 0.999 then
+        agent:SetAttribute("P7_SurvivalEffectObserved", true)
+        local worldState = workspace:FindFirstChild("AstraWorldState")
+        if worldState then
+            worldState:SetAttribute("P7_SurvivalEffectObserved", true)
+        end
+    end
 
     if hasThreat then
         needs.safety = clamp100(needs.safety - config.SafetyThreatLoss - environmentSafetyLoss)
