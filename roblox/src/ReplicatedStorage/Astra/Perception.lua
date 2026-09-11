@@ -26,6 +26,34 @@ local function resourceObservation(agent, resource, distance, tick, config)
     }
 end
 
+local function environmentObservation(folders, tick, config)
+    local state = folders.state
+    return {
+        id = string.format("environment:%d", tick),
+        type = "environment",
+        dayPhase = state:GetAttribute("DayPhase") or "Dawn",
+        clockTime = state:GetAttribute("ClockTime") or 0,
+        weather = state:GetAttribute("Weather") or "Clear",
+        isNight = state:GetAttribute("IsNight") == true,
+        worldEvent = state:GetAttribute("WorldEvent") or "None",
+        dangerActive = state:GetAttribute("DangerActive") == true,
+        observedTick = tick,
+        createdTick = tick,
+        confidence = config.DirectObservationConfidence or 1.0,
+        provenance = "direct",
+    }
+end
+
+local function syncEnvironmentObservation(agent, folders, observation)
+    agent:SetAttribute("ObservedDayPhase", observation.dayPhase)
+    agent:SetAttribute("ObservedWeather", observation.weather)
+    agent:SetAttribute("ObservedIsNight", observation.isNight)
+    agent:SetAttribute("ObservedWorldEvent", observation.worldEvent)
+    agent:SetAttribute("ObservedDangerActive", observation.dangerActive)
+    agent:SetAttribute("ObservedEnvironmentTick", observation.observedTick)
+    folders.state:SetAttribute("P5_EnvironmentObserved", true)
+end
+
 local function prioritizeBuildMaterials(agent, folders, resources)
     if agent:GetAttribute("Role") ~= "Gatherer" then
         sortByDistance(resources)
@@ -68,12 +96,21 @@ local function prioritizeBuildMaterials(agent, folders, resources)
 end
 
 function Perception.Observe(agent, folders, config, tick)
+    local environment = environmentObservation(folders, tick, config)
+    syncEnvironmentObservation(agent, folders, environment)
+
     local root = agent:FindFirstChild("HumanoidRootPart")
     if not root then
-        return { resources = {}, agents = {}, threats = {}, players = {} }
+        return { resources = {}, agents = {}, threats = {}, players = {}, environment = environment }
     end
 
-    local observations = { resources = {}, agents = {}, threats = {}, players = {} }
+    local observations = {
+        resources = {},
+        agents = {},
+        threats = {},
+        players = {},
+        environment = environment,
+    }
 
     for _, resource in ipairs(folders.resources:GetChildren()) do
         if resource:IsA("BasePart") and resource:GetAttribute("Active") ~= false then

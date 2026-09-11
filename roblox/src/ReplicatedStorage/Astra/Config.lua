@@ -1,6 +1,6 @@
 local Config = {}
 
-Config.RuntimeVersion = "0.4.0-p4"
+Config.RuntimeVersion = "0.5.0-p5"
 
 Config.TickSeconds = 2
 Config.ThinkVisibleSeconds = 2
@@ -39,34 +39,48 @@ Config.HungerDecayPerTick = 2.5
 Config.HungerLow = 45
 Config.HungerCritical = 15
 Config.FoodRestore = 55
-
 Config.ThirstStart = 68
 Config.ThirstDecayPerTick = 3.5
 Config.ThirstLow = 45
 Config.ThirstCritical = 15
 Config.WaterRestore = 60
-
 Config.EnergyStart = 55
 Config.EnergyDecayPerTick = 2.0
 Config.EnergyRestGain = 16
 Config.EnergyLow = 30
 Config.ShelterRestBonus = 8
-
 Config.SafetyStart = 100
 Config.SafetyRecoveryPerTick = 3
 Config.SafetyThreatLoss = 15
-
 Config.SocialStart = 55
 Config.SocialDecayPerTick = 1.5
 Config.SocialLow = 28
 Config.SocialRestore = 35
-
 Config.CriticalNeedDamage = 4
 Config.HealthyRecovery = 1
 Config.SurvivalStockTargetFood = 4
 Config.SurvivalStockTargetWater = 4
 Config.DemoStartingFood = 2
 Config.DemoStartingWater = 2
+
+-- P5 deterministic Living World.
+Config.DayLengthTicks = 24
+Config.DawnEndTick = 3
+Config.DayEndTick = 12
+Config.DuskEndTick = 15
+Config.WeatherPeriodTicks = 6
+Config.WeatherSequence = {"Clear", "Rain", "Clear", "Storm"}
+Config.RainThirstDecayMultiplier = 0.75
+Config.NightEnergyDecayMultiplier = 1.20
+Config.StormEnergyDecayMultiplier = 1.35
+Config.StormSafetyLossPerTick = 5
+Config.WorldResourceGrowthInterval = 3
+Config.WorldResourceMaxBonusNodes = 6
+Config.ThreatDurationTicks = 6
+Config.DangerZonePosition = Vector3.new(18, 1, 2)
+Config.DangerZoneSize = Vector3.new(18, 1, 18)
+Config.EnvironmentShelterAtNight = true
+Config.EnvironmentShelterInStorm = true
 
 Config.ResourceRespawnSeconds = 14
 Config.DemoResourceCount = 8
@@ -95,34 +109,10 @@ Config.Roles = {
 }
 
 Config.Blueprints = {
-    {
-        id = "Campfire",
-        displayName = "Campfire",
-        recipe = { Wood = 2, Stone = 1 },
-        buildSteps = 3,
-        offset = Vector3.new(8, 0, 8),
-    },
-    {
-        id = "Shelter",
-        displayName = "Shelter",
-        recipe = { Wood = 4, Stone = 2 },
-        buildSteps = 4,
-        offset = Vector3.new(-10, 0, 10),
-    },
-    {
-        id = "Storage",
-        displayName = "Storage",
-        recipe = { Wood = 4, Stone = 3 },
-        buildSteps = 4,
-        offset = Vector3.new(12, 0, -10),
-    },
-    {
-        id = "WatchTower",
-        displayName = "Watch Tower",
-        recipe = { Wood = 6, Stone = 4 },
-        buildSteps = 5,
-        offset = Vector3.new(-14, 0, -12),
-    },
+    { id = "Campfire", displayName = "Campfire", recipe = { Wood = 2, Stone = 1 }, buildSteps = 3, offset = Vector3.new(8, 0, 8) },
+    { id = "Shelter", displayName = "Shelter", recipe = { Wood = 4, Stone = 2 }, buildSteps = 4, offset = Vector3.new(-10, 0, 10) },
+    { id = "Storage", displayName = "Storage", recipe = { Wood = 4, Stone = 3 }, buildSteps = 4, offset = Vector3.new(12, 0, -10) },
+    { id = "WatchTower", displayName = "Watch Tower", recipe = { Wood = 6, Stone = 4 }, buildSteps = 5, offset = Vector3.new(-14, 0, -12) },
 }
 
 return Config

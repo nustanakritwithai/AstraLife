@@ -14,14 +14,46 @@ function Needs.Create(config)
     }
 end
 
+local function environmentMultipliers(humanoid, config)
+    local agent = humanoid and humanoid.Parent
+    local weather = agent and agent:GetAttribute("ObservedWeather") or "Clear"
+    local isNight = agent and agent:GetAttribute("ObservedIsNight") == true or false
+
+    local hunger = 1
+    local thirst = 1
+    local energy = 1
+    local safetyLoss = 0
+
+    if weather == "Rain" then
+        thirst *= config.RainThirstDecayMultiplier
+    elseif weather == "Storm" then
+        energy *= config.StormEnergyDecayMultiplier
+        safetyLoss += config.StormSafetyLossPerTick
+    end
+
+    if isNight then
+        energy *= config.NightEnergyDecayMultiplier
+    end
+
+    if agent and (weather ~= "Clear" or isNight) then
+        agent:SetAttribute("P5WeatherAffectedNeeds", true)
+    end
+
+    return hunger, thirst, energy, safetyLoss
+end
+
 function Needs.Tick(needs, humanoid, hasThreat, config)
-    needs.hunger = clamp100(needs.hunger - config.HungerDecayPerTick)
-    needs.thirst = clamp100(needs.thirst - config.ThirstDecayPerTick)
-    needs.energy = clamp100(needs.energy - config.EnergyDecayPerTick)
+    local hungerMult, thirstMult, energyMult, environmentSafetyLoss = environmentMultipliers(humanoid, config)
+
+    needs.hunger = clamp100(needs.hunger - config.HungerDecayPerTick * hungerMult)
+    needs.thirst = clamp100(needs.thirst - config.ThirstDecayPerTick * thirstMult)
+    needs.energy = clamp100(needs.energy - config.EnergyDecayPerTick * energyMult)
     needs.social = clamp100(needs.social - config.SocialDecayPerTick)
 
     if hasThreat then
-        needs.safety = clamp100(needs.safety - config.SafetyThreatLoss)
+        needs.safety = clamp100(needs.safety - config.SafetyThreatLoss - environmentSafetyLoss)
+    elseif environmentSafetyLoss > 0 then
+        needs.safety = clamp100(needs.safety - environmentSafetyLoss)
     else
         needs.safety = clamp100(needs.safety + config.SafetyRecoveryPerTick)
     end
