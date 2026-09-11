@@ -3,6 +3,7 @@ local SkillLearning = {}
 local SKILLS = {"Scout", "Gatherer", "Builder", "Survival"}
 local profiles = setmetatable({}, { __mode = "k" })
 local buildSnapshot = {
+    buildId = nil,
     progress = 0,
     completedBlueprint = nil,
     worker = nil,
@@ -206,12 +207,24 @@ end
 
 local function processBuildOutcome(folders, tick, config)
     local state = folders.state
+    local buildId = state:GetAttribute("P3_BuildId")
     local progress = state:GetAttribute("BuildProgress") or 0
     local workerName = state:GetAttribute("ActiveBuildWorker")
     local completedBlueprint = state:GetAttribute("P3_LastCompletedBlueprint")
 
+    if buildId ~= buildSnapshot.buildId then
+        buildSnapshot.buildId = buildId
+        buildSnapshot.progress = 0
+        if workerName and workerName ~= "None" then
+            buildSnapshot.worker = workerName
+        end
+    end
+
     if progress > buildSnapshot.progress then
-        local worker = workerName and folders.agents:FindFirstChild(workerName)
+        local worker = workerName and workerName ~= "None" and folders.agents:FindFirstChild(workerName)
+        if not worker and buildSnapshot.worker then
+            worker = folders.agents:FindFirstChild(buildSnapshot.worker)
+        end
         if worker then
             grant(worker, "Builder", config.P7BuilderProgressXP or 1.4, "builder_progress", nil, tick, config, state)
         end
@@ -249,6 +262,7 @@ function SkillLearning.Initialize(folders, config)
             SkillLearning.PrepareAgent(agent, config)
         end
     end
+    buildSnapshot.buildId = folders.state:GetAttribute("P3_BuildId")
     buildSnapshot.progress = folders.state:GetAttribute("BuildProgress") or 0
     buildSnapshot.completedBlueprint = folders.state:GetAttribute("P3_LastCompletedBlueprint")
     buildSnapshot.worker = folders.state:GetAttribute("ActiveBuildWorker")
