@@ -14,24 +14,20 @@ local function clampSkill(value, config)
 end
 
 local function levelFor(skill)
-    if skill >= 100 then
-        return 5
-    end
+    if skill >= 100 then return 5 end
     return math.clamp(math.floor((skill or 0) / 25) + 1, 1, 5)
 end
 
 local function ensureProfile(agent, config)
     local profile = profiles[agent]
-    if profile then
-        return profile
-    end
+    if profile then return profile end
 
     profile = {
         base = {},
         seen = {},
         repeats = {},
         snapshot = {
-            observationId = agent:GetAttribute("LastObservationId"),
+            discoveryCount = agent:GetAttribute("P7DiscoveryCount") or 0,
             carry = agent:GetAttribute("CarryTotal") or 0,
             hunger = agent:GetAttribute("Hunger") or config.HungerStart,
             thirst = agent:GetAttribute("Thirst") or config.ThirstStart,
@@ -114,17 +110,11 @@ local function rewardMultiplier(profile, category, tick, config)
 end
 
 local function grant(agent, skill, amount, category, eventId, tick, config, worldState)
-    if amount <= 0 then
-        return 0
-    end
+    if amount <= 0 then return 0 end
 
     local profile = ensureProfile(agent, config)
-    if eventId and profile.seen[eventId] then
-        return 0
-    end
-    if eventId then
-        profile.seen[eventId] = true
-    end
+    if eventId and profile.seen[eventId] then return 0 end
+    if eventId then profile.seen[eventId] = true end
 
     local multiplier, repeatCount = rewardMultiplier(profile, category, tick, config)
     local reward = amount * multiplier
@@ -138,9 +128,7 @@ local function grant(agent, skill, amount, category, eventId, tick, config, worl
     worldState:SetAttribute("P7_XPRecorded", true)
     worldState:SetAttribute("P7_OutcomeLearningObserved", true)
     worldState:SetAttribute("P6_SkillUpdated", true)
-    if repeatCount > 0 then
-        worldState:SetAttribute("P7_AntiGrindObserved", true)
-    end
+    if repeatCount > 0 then worldState:SetAttribute("P7_AntiGrindObserved", true) end
 
     recomputeSkill(agent, skill, config)
     worldState:SetAttribute("P7_SkillRecomputed", true)
@@ -148,17 +136,28 @@ local function grant(agent, skill, amount, category, eventId, tick, config, worl
 end
 
 local function processAgent(agent, folders, tick, config)
-    if not agent:IsA("Model") then
-        return
-    end
+    if not agent:IsA("Model") then return end
 
     local profile = ensureProfile(agent, config)
     local snap = profile.snapshot
     local state = folders.state
 
-    local observationId = agent:GetAttribute("LastObservationId")
-    if observationId and observationId ~= snap.observationId then
-        grant(agent, "Scout", config.P7ScoutObservationXP or 1, "scout_observation", "obs:" .. observationId, tick, config, state)
+    -- Scout XP now tracks first-time resource discoveries instead of observation IDs.
+    -- Observation IDs contain tick data, so using them directly allowed passive XP farming.
+    local discoveryCount = agent:GetAttribute("P7DiscoveryCount") or 0
+    if discoveryCount > snap.discoveryCount then
+        local delta = discoveryCount - snap.discoveryCount
+        grant(
+            agent,
+            "Scout",
+            delta * (config.P7ScoutObservationXP or 1),
+            "scout_discovery",
+            nil,
+            tick,
+            config,
+            state
+        )
+        state:SetAttribute("P7_UniqueDiscoveryLearning", true)
     end
 
     local carry = agent:GetAttribute("CarryTotal") or 0
@@ -194,7 +193,7 @@ local function processAgent(agent, folders, tick, config)
         state:SetAttribute("P7_FailureLearningObserved", true)
     end
 
-    snap.observationId = observationId
+    snap.discoveryCount = discoveryCount
     snap.carry = carry
     snap.hunger = hunger
     snap.thirst = thirst
@@ -215,29 +214,20 @@ local function processBuildOutcome(folders, tick, config)
     if buildId ~= buildSnapshot.buildId then
         buildSnapshot.buildId = buildId
         buildSnapshot.progress = 0
-        if workerName and workerName ~= "None" then
-            buildSnapshot.worker = workerName
-        end
+        if workerName and workerName ~= "None" then buildSnapshot.worker = workerName end
     end
 
     if progress > buildSnapshot.progress then
         local worker = workerName and workerName ~= "None" and folders.agents:FindFirstChild(workerName)
-        if not worker and buildSnapshot.worker then
-            worker = folders.agents:FindFirstChild(buildSnapshot.worker)
-        end
+        if not worker and buildSnapshot.worker then worker = folders.agents:FindFirstChild(buildSnapshot.worker) end
         if worker then
             grant(worker, "Builder", config.P7BuilderProgressXP or 1.4, "builder_progress", nil, tick, config, state)
         end
     end
 
     if completedBlueprint and completedBlueprint ~= buildSnapshot.completedBlueprint then
-        local worker = nil
-        if buildSnapshot.worker then
-            worker = folders.agents:FindFirstChild(buildSnapshot.worker)
-        end
-        if not worker and workerName and workerName ~= "None" then
-            worker = folders.agents:FindFirstChild(workerName)
-        end
+        local worker = buildSnapshot.worker and folders.agents:FindFirstChild(buildSnapshot.worker) or nil
+        if not worker and workerName and workerName ~= "None" then worker = folders.agents:FindFirstChild(workerName) end
         if worker then
             grant(worker, "Builder", config.P7BuilderCompleteXP or 4, "builder_complete", "build:" .. completedBlueprint, tick, config, state)
             state:SetAttribute("P7_BuildCompletionLearned", true)
@@ -246,9 +236,7 @@ local function processBuildOutcome(folders, tick, config)
 
     buildSnapshot.progress = progress
     buildSnapshot.completedBlueprint = completedBlueprint
-    if workerName and workerName ~= "None" then
-        buildSnapshot.worker = workerName
-    end
+    if workerName and workerName ~= "None" then buildSnapshot.worker = workerName end
 end
 
 function SkillLearning.PrepareAgent(agent, config)
@@ -258,9 +246,7 @@ end
 
 function SkillLearning.Initialize(folders, config)
     for _, agent in ipairs(folders.agents:GetChildren()) do
-        if agent:IsA("Model") then
-            SkillLearning.PrepareAgent(agent, config)
-        end
+        if agent:IsA("Model") then SkillLearning.PrepareAgent(agent, config) end
     end
     buildSnapshot.buildId = folders.state:GetAttribute("P3_BuildId")
     buildSnapshot.progress = folders.state:GetAttribute("BuildProgress") or 0
@@ -271,9 +257,7 @@ function SkillLearning.Initialize(folders, config)
 end
 
 function SkillLearning.Tick(folders, tick, config)
-    for _, agent in ipairs(folders.agents:GetChildren()) do
-        processAgent(agent, folders, tick, config)
-    end
+    for _, agent in ipairs(folders.agents:GetChildren()) do processAgent(agent, folders, tick, config) end
     processBuildOutcome(folders, tick, config)
     folders.state:SetAttribute("P7_EffectApplied", true)
 end
