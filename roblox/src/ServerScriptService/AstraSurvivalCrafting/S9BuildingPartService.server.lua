@@ -1,0 +1,12 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SurvivalCrafting = ReplicatedStorage.Astra.SurvivalCrafting
+local StateWriter = require(SurvivalCrafting.Core.StateWriter)
+local Catalog = require(SurvivalCrafting.S9.BuildingPartCatalog)
+local Verifier = require(SurvivalCrafting.S9.S9Verifier)
+local scope = StateWriter.Scope("S9BuildingParts")
+scope:SetAttribute("Version", "S9-1")
+scope:SetAttribute("OwnsPlacement", false)
+scope:SetAttribute("OwnsLegacyConstruction", false)
+scope:SetAttribute("OwnsStructureDamage", false)
+scope:SetAttribute("PlacementMode", "snap-policy-contract")
+Verifier.Verify(Catalog, scope)
