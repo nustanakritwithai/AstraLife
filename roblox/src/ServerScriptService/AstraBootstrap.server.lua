@@ -120,9 +120,11 @@ folders.state:SetAttribute("P2Status", "RUNNING")
 folders.state:SetAttribute("P3Status", "RUNNING")
 folders.state:SetAttribute("P4Status", "RUNNING")
 folders.state:SetAttribute("P5Status", "RUNNING")
+folders.state:SetAttribute("P6Status", "RUNNING")
+folders.state:SetAttribute("P7Status", "RUNNING")
 
 ensureResources()
 ensureAgents()
 seedSurvivalStock()
 
-print("[AstraLife] Roblox Rojo P5 Living World bootstrapped")
+print("[AstraLife] Roblox Rojo P7 Skill Learning bootstrapped")
