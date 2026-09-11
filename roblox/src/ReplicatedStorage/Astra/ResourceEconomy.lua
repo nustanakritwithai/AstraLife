@@ -9,11 +9,9 @@ local function ensureAttributes(folder)
             folder:SetAttribute(key, 0)
         end
     end
-
     if folder:GetAttribute("StorageCapacity") == nil then
         folder:SetAttribute("StorageCapacity", 40)
     end
-
     if folder:GetAttribute("P3_RequestMode") == nil then
         folder:SetAttribute("P3_RequestMode", true)
     end
@@ -75,6 +73,35 @@ function ResourceEconomy.GetFreeCapacity(worldStateFolder)
     return math.max(0, capacity - ResourceEconomy.GetTotal(worldStateFolder))
 end
 
+function ResourceEconomy.DepositToStorage(worldStateFolder, resourceType, amount)
+    amount = math.max(0, amount or 0)
+    local accepted = math.min(amount, ResourceEconomy.GetFreeCapacity(worldStateFolder))
+    if accepted <= 0 then
+        return 0
+    end
+    local key = "Stock_" .. resourceType
+    worldStateFolder:SetAttribute(key, ResourceEconomy.Get(worldStateFolder, resourceType) + accepted)
+    updateStockTotal(worldStateFolder)
+    return accepted
+end
+
+-- Compatibility: P2 storage deposits only. P3 build delivery uses DeliverToBuildSite.
+function ResourceEconomy.Deposit(worldStateFolder, resourceType, amount)
+    return ResourceEconomy.DepositToStorage(worldStateFolder, resourceType, amount)
+end
+
+function ResourceEconomy.Consume(worldStateFolder, resourceType, amount)
+    amount = math.max(0, amount or 0)
+    local current = ResourceEconomy.Get(worldStateFolder, resourceType)
+    local consumed = math.min(current, amount)
+    if consumed <= 0 then
+        return 0
+    end
+    worldStateFolder:SetAttribute("Stock_" .. resourceType, current - consumed)
+    updateStockTotal(worldStateFolder)
+    return consumed
+end
+
 function ResourceEconomy.GetBuildMissing(worldStateFolder, resourceType)
     local required = worldStateFolder:GetAttribute("P3_Required_" .. resourceType) or 0
     local delivered = worldStateFolder:GetAttribute("P3_Delivered_" .. resourceType) or 0
@@ -89,50 +116,39 @@ function ResourceEconomy.IsRequestedForBuild(worldStateFolder, resourceType)
         and ResourceEconomy.GetBuildMissing(worldStateFolder, resourceType) > 0
 end
 
-function ResourceEconomy.Deposit(worldStateFolder, resourceType, amount)
+function ResourceEconomy.GetMostNeededBuildType(worldStateFolder)
+    for _, resourceType in ipairs(RESOURCE_TYPES) do
+        if ResourceEconomy.IsRequestedForBuild(worldStateFolder, resourceType) then
+            return resourceType, ResourceEconomy.GetBuildMissing(worldStateFolder, resourceType)
+        end
+    end
+    return nil, 0
+end
+
+function ResourceEconomy.DeliverToBuildSite(worldStateFolder, resourceType, amount)
     amount = math.max(0, amount or 0)
-    if amount <= 0 then
+    if amount <= 0 or not ResourceEconomy.IsRequestedForBuild(worldStateFolder, resourceType) then
         return 0
     end
 
-    local acceptedToSite = 0
-
-    if ResourceEconomy.IsRequestedForBuild(worldStateFolder, resourceType) then
-        local missing = ResourceEconomy.GetBuildMissing(worldStateFolder, resourceType)
-        acceptedToSite = math.min(amount, missing)
-
-        if acceptedToSite > 0 then
-            local key = "P3_Delivered_" .. resourceType
-            local delivered = worldStateFolder:GetAttribute(key) or 0
-            worldStateFolder:SetAttribute(key, delivered + acceptedToSite)
-            worldStateFolder:SetAttribute("P3_MaterialDelivered", true)
-            worldStateFolder:SetAttribute("P3_LastDelivery", resourceType .. "+" .. tostring(acceptedToSite))
-            worldStateFolder:SetAttribute("P3_LastDeliveryType", resourceType)
-        end
+    local missing = ResourceEconomy.GetBuildMissing(worldStateFolder, resourceType)
+    local accepted = math.min(amount, missing)
+    if accepted <= 0 then
+        return 0
     end
 
-    local remaining = amount - acceptedToSite
-    local acceptedToStorage = 0
-
-    if remaining > 0 then
-        acceptedToStorage = math.min(remaining, ResourceEconomy.GetFreeCapacity(worldStateFolder))
-        if acceptedToStorage > 0 then
-            local key = "Stock_" .. resourceType
-            worldStateFolder:SetAttribute(key, ResourceEconomy.Get(worldStateFolder, resourceType) + acceptedToStorage)
-        end
-    end
-
-    updateStockTotal(worldStateFolder)
+    local key = "P3_Delivered_" .. resourceType
+    local delivered = worldStateFolder:GetAttribute(key) or 0
+    worldStateFolder:SetAttribute(key, delivered + accepted)
+    worldStateFolder:SetAttribute("P3_MaterialDelivered", true)
+    worldStateFolder:SetAttribute("P3_PhysicalDelivery", true)
+    worldStateFolder:SetAttribute("P3_LastDelivery", resourceType .. "+" .. tostring(accepted))
+    worldStateFolder:SetAttribute("P3_LastDeliveryType", resourceType)
     updateMaterialReady(worldStateFolder)
-
-    return acceptedToSite + acceptedToStorage
+    return accepted
 end
 
 function ResourceEconomy.CanAfford(worldStateFolder, recipe)
-    -- P3 construction is request-driven: the Builder may reserve a site before
-    -- the colony owns all materials. This compatibility path lets the P2 Brain
-    -- create the Build Site, while Construction.Step still blocks work until
-    -- physical materials have been delivered to the site.
     if worldStateFolder:GetAttribute("P3_RequestMode") == true
         and (worldStateFolder:GetAttribute("ActiveBuildId") or "None") == "None"
     then
@@ -153,12 +169,10 @@ function ResourceEconomy.Spend(worldStateFolder, recipe)
             return false
         end
     end
-
     for resourceType, amount in pairs(recipe or {}) do
         local key = "Stock_" .. resourceType
         worldStateFolder:SetAttribute(key, ResourceEconomy.Get(worldStateFolder, resourceType) - amount)
     end
-
     updateStockTotal(worldStateFolder)
     return true
 end
