@@ -21,6 +21,8 @@ Config.WalkSpeed = 9
 Config.RunSpeed = 14
 Config.StuckDistanceEpsilon = 0.75
 Config.StuckTicksBeforePath = 3
+Config.PathRecomputeIntervalTicks = 2
+Config.PathTargetChangeDistance = 4
 
 Config.ShortMemoryLimit = 40
 Config.LongMemoryLimit = 120
@@ -35,7 +37,6 @@ Config.MaxMessageQueueSize = 50
 Config.MessageRegistryTTL = 24
 Config.MessageRegistryCleanupIntervalTicks = 6
 
--- P4 survival needs: 100 = fully satisfied, 0 = critical.
 Config.HungerStart = 70
 Config.HungerDecayPerTick = 2.5
 Config.HungerLow = 45
@@ -65,7 +66,6 @@ Config.SurvivalStockTargetWater = 10
 Config.DemoStartingFood = 8
 Config.DemoStartingWater = 8
 
--- P5 deterministic Living World.
 Config.DayLengthTicks = 24
 Config.DawnEndTick = 3
 Config.DayEndTick = 12
@@ -84,7 +84,6 @@ Config.DangerZoneSize = Vector3.new(18, 1, 18)
 Config.EnvironmentShelterAtNight = true
 Config.EnvironmentShelterInStorm = true
 
--- P6 emergent role selection.
 Config.RoleEvaluationIntervalTicks = 4
 Config.RoleMinDurationTicks = 10
 Config.RoleSwitchMargin = 14
@@ -98,7 +97,6 @@ Config.RoleExperienceGatherer = 0
 Config.RoleExperienceBuilder = 0
 Config.RoleExperienceSurvival = 0
 
--- P7 outcome-based skill learning.
 Config.P7OutcomeLearningEnabled = true
 Config.P7SkillCap = 100
 Config.P7XPToSkillScale = 3.0
