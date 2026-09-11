@@ -1,0 +1,47 @@
+name: Build AstraLife Kingdom K6 Recruitment
+
+on:
+  push:
+    branches:
+      - feat/roblox-kingdom-k6-recruitment
+    paths:
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/Core/**"
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/K6Recruitment/**"
+      - "roblox/src/ServerScriptService/AstraKingdom/KingdomCoreService.server.lua"
+      - "roblox/src/ServerScriptService/AstraKingdom/K6RecruitmentService.server.lua"
+      - "roblox/KINGDOM_K0_CORE.md"
+      - "roblox/KINGDOM_K6_RECRUITMENT.md"
+      - "roblox/default.project.json"
+      - "rokit.toml"
+      - ".github/workflows/roblox-kingdom-k6-recruitment-build.yml"
+  pull_request:
+    branches:
+      - feat/roblox-kingdom-k0-core
+    paths:
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/K6Recruitment/**"
+      - "roblox/src/ServerScriptService/AstraKingdom/K6RecruitmentService.server.lua"
+      - "roblox/KINGDOM_K6_RECRUITMENT.md"
+      - "roblox/default.project.json"
+      - "rokit.toml"
+      - ".github/workflows/roblox-kingdom-k6-recruitment-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+      - name: Build Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-Kingdom-K6-Recruitment.rbxl
+      - name: Upload playable place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-Kingdom-K6-Recruitment-Place
+          path: AstraLife-Kingdom-K6-Recruitment.rbxl
+          if-no-files-found: error
+          retention-days: 14
