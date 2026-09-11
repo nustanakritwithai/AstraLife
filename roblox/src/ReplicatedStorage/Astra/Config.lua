@@ -1,6 +1,6 @@
 local Config = {}
 
-Config.RuntimeVersion = "0.2.0-p2"
+Config.RuntimeVersion = "0.3.0-p3"
 
 Config.TickSeconds = 2
 Config.ThinkVisibleSeconds = 2
@@ -13,6 +13,7 @@ Config.CommunicationRange = 45
 Config.CollectDistance = 4.5
 Config.ArrivalDistance = 5
 Config.DepositDistance = 6
+Config.BuildSiteDeliveryDistance = 6
 
 Config.WalkSpeed = 9
 Config.RunSpeed = 14
@@ -45,6 +46,9 @@ Config.CreateDemoAgents = true
 Config.CarryCapacity = 3
 Config.StorageCapacity = 40
 Config.StoragePosition = Vector3.new(0, 2.5, 0)
+
+Config.P3RequestMode = true
+Config.BuildSiteMarkerTransparency = 0.55
 
 Config.ResourceTypes = {
     Wood = { color = Color3.fromRGB(121, 85, 58), material = Enum.Material.Wood, yield = 1 },
