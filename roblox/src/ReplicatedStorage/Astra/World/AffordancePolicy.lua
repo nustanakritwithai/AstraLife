@@ -66,6 +66,12 @@ local function requirePhysicalAccess(facts, config)
     return true, "ok"
 end
 
+local function requireTerrainAccess(facts, config)
+    if not facts.terrainWalkable then return false, "terrain_blocked" end
+    if facts.slope >= config.maxWalkSlope then return false, "slope_too_steep" end
+    return true, "ok"
+end
+
 function AffordancePolicy.Evaluate(cell, action, options)
     if not cell then
         return false, "outside_world", { inWorld = false }
@@ -81,9 +87,12 @@ function AffordancePolicy.Evaluate(cell, action, options)
     end
 
     if action == "Drink" then
-        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        -- Preserve W5's stable action-specific reason contract for dangerous water.
+        if facts.hazardBlocked or facts.danger > config.maxDrinkDanger then
+            return false, "unsafe_water", facts
+        end
+        local accessible, accessReason = requireTerrainAccess(facts, config)
         if not accessible then return false, accessReason, facts end
-        if facts.danger > config.maxDrinkDanger then return false, "unsafe_water", facts end
         if facts.water < config.minDrinkWater and facts.waterPotential < config.minSpringPotential then
             return false, "no_drinkable_water", facts
         end
@@ -91,25 +100,31 @@ function AffordancePolicy.Evaluate(cell, action, options)
     end
 
     if action == "Eat" then
-        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if facts.hazardBlocked or facts.danger > config.maxForageDanger then
+            return false, "unsafe_food", facts
+        end
+        local accessible, accessReason = requireTerrainAccess(facts, config)
         if not accessible then return false, accessReason, facts end
-        if facts.danger > config.maxForageDanger then return false, "unsafe_food", facts end
         if facts.food < config.minEatFood then return false, "insufficient_food", facts end
         return true, "ok", facts
     end
 
     if action == "Forage" then
-        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if facts.hazardBlocked or facts.danger > config.maxForageDanger then
+            return false, "unsafe_forage", facts
+        end
+        local accessible, accessReason = requireTerrainAccess(facts, config)
         if not accessible then return false, accessReason, facts end
-        if facts.danger > config.maxForageDanger then return false, "unsafe_forage", facts end
         if facts.food <= config.minForageFood then return false, "no_forage", facts end
         return true, "ok", facts
     end
 
     if action == "HarvestWood" then
-        local accessible, accessReason = requirePhysicalAccess(facts, config)
+        if facts.hazardBlocked or facts.danger > config.maxHarvestDanger then
+            return false, "unsafe_harvest", facts
+        end
+        local accessible, accessReason = requireTerrainAccess(facts, config)
         if not accessible then return false, accessReason, facts end
-        if facts.danger > config.maxHarvestDanger then return false, "unsafe_harvest", facts end
         if facts.wood < config.minHarvestWood then return false, "insufficient_wood", facts end
         return true, "ok", facts
     end
@@ -139,10 +154,7 @@ function AffordancePolicy.Snapshot(cell, options)
     local snapshot = {}
     for _, action in ipairs(actions) do
         local allowed, reason = AffordancePolicy.Evaluate(cell, action, options)
-        snapshot[action] = {
-            allowed = allowed,
-            reason = reason,
-        }
+        snapshot[action] = { allowed = allowed, reason = reason }
     end
     return snapshot
 end
