@@ -67,7 +67,10 @@ function WorldResourceTransaction:Withdraw(x, z, resourceType, amount, transacti
 
     local field = RESOURCE_FIELDS[resourceType]
     amount = math.max(0, tonumber(amount) or 0)
-    local cell = self.grid:GetCell(x, z)
+    x = tonumber(x)
+    z = tonumber(z)
+    if x then x = math.floor(x) end
+    if z then z = math.floor(z) end
 
     local result = {
         ok = false,
@@ -79,7 +82,7 @@ function WorldResourceTransaction:Withdraw(x, z, resourceType, amount, transacti
         remaining = 0,
         x = x,
         z = z,
-        cellKey = self.grid:Key(x, z),
+        cellKey = x and z and self.grid:Key(x, z) or nil,
         reason = nil,
     }
 
@@ -89,12 +92,14 @@ function WorldResourceTransaction:Withdraw(x, z, resourceType, amount, transacti
         self:_remember(transactionId, result)
         return cloneResult(result, false)
     end
-    if not cell then
+    if not x or not z or not self.grid:IsInside(x, z) then
         result.reason = "outside_world"
         self.rejected += 1
         self:_remember(transactionId, result)
         return cloneResult(result, false)
     end
+
+    local cell = self.grid:GetCell(x, z)
     if amount <= 0 then
         result.reason = "invalid_amount"
         result.remaining = math.max(0, cell[field] or 0)
