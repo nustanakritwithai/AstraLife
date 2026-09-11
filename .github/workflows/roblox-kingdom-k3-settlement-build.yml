@@ -1,0 +1,47 @@
+name: Build AstraLife Kingdom K3 Settlement
+
+on:
+  push:
+    branches:
+      - feat/roblox-kingdom-k3-settlement
+    paths:
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/Core/**"
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/K3Settlement/**"
+      - "roblox/src/ServerScriptService/AstraKingdom/KingdomCoreService.server.lua"
+      - "roblox/src/ServerScriptService/AstraKingdom/K3SettlementService.server.lua"
+      - "roblox/KINGDOM_K0_CORE.md"
+      - "roblox/KINGDOM_K3_SETTLEMENT.md"
+      - "roblox/default.project.json"
+      - "rokit.toml"
+      - ".github/workflows/roblox-kingdom-k3-settlement-build.yml"
+  pull_request:
+    branches:
+      - feat/roblox-kingdom-k0-core
+    paths:
+      - "roblox/src/ReplicatedStorage/Astra/Kingdom/K3Settlement/**"
+      - "roblox/src/ServerScriptService/AstraKingdom/K3SettlementService.server.lua"
+      - "roblox/KINGDOM_K3_SETTLEMENT.md"
+      - "roblox/default.project.json"
+      - "rokit.toml"
+      - ".github/workflows/roblox-kingdom-k3-settlement-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+      - name: Build Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-Kingdom-K3-Settlement.rbxl
+      - name: Upload playable place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-Kingdom-K3-Settlement-Place
+          path: AstraLife-Kingdom-K3-Settlement.rbxl
+          if-no-files-found: error
+          retention-days: 14
