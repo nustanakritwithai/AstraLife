@@ -10,6 +10,8 @@ local SurvivalTransaction = require(WorldModules.SurvivalTransaction)
 local W6Verifier = require(WorldModules.W6Verifier)
 local AffordancePolicy = require(WorldModules.AffordancePolicy)
 local InventoryShadow = require(Astra.SurvivalCrafting.Adapter.InventoryShadow)
+local SurfaceResolver = require(WorldModules.SurfaceResolver)
+local SurfaceResolverContract = require(WorldModules.SurfaceResolverContract)
 
 local SurvivalBridgeService = {}
 
@@ -20,34 +22,10 @@ local depositSeen = {}
 local depositOrder = {}
 local maxDepositHistory = 2048
 
--- I0.2 physical surface projection: logical X/Z stays authoritative, but
--- Humanoid targets must sit on a physically reachable Roblox Y until real W1
--- terrain materialization exists. Built lazily because the Astra workspace
--- folders are created after this module is required.
-local surfaceRayParams = nil
-
+-- I0.2: delegate physical Y projection to the shared World SurfaceResolver.
+-- Do not keep a private SurvivalBridge projector (I0.2 / I5 gate).
 local function projectToPhysicalSurface(position)
-    if not surfaceRayParams then
-        surfaceRayParams = RaycastParams.new()
-        surfaceRayParams.FilterType = Enum.RaycastFilterType.Exclude
-        local exclude = {}
-        for _, name in ipairs({"AstraAgents", "AstraResources", "AstraStructures"}) do
-            local folder = workspace:FindFirstChild(name)
-            if folder then table.insert(exclude, folder) end
-        end
-        surfaceRayParams.FilterDescendantsInstances = exclude
-        surfaceRayParams.IgnoreWater = false
-    end
-    local hit = workspace:Raycast(
-        Vector3.new(position.X, 200, position.Z),
-        Vector3.new(0, -400, 0),
-        surfaceRayParams
-    )
-    if hit then
-        return Vector3.new(position.X, hit.Position.Y, position.Z)
-    end
-    -- Flat compatibility floor top sits at Y = 0.
-    return Vector3.new(position.X, 0, position.Z)
+    return SurfaceResolver.Project(position)
 end
 
 local ACTION_BY_RESOURCE = {
@@ -210,6 +188,21 @@ function SurvivalBridgeService.Start()
     state:SetAttribute("W6VerifierWaterAfter", verifierStats.waterAfter)
     state:SetAttribute("W6VerifierInventoryFood", verifierStats.inventoryFood)
     state:SetAttribute("W6VerifierColonyFood", verifierStats.colonyFood)
+
+    local surfacePassed, surfaceChecks, surfaceStats = SurfaceResolverContract.Run()
+    state:SetAttribute("I02SurfaceResolverStatus", surfacePassed and "PASS" or "FAIL")
+    for name, value in pairs(surfaceChecks) do
+        state:SetAttribute("I02SurfaceCheck_" .. name, value)
+    end
+    if surfaceStats and surfaceStats.resolvedY ~= nil then
+        state:SetAttribute("I02SurfaceResolvedY", surfaceStats.resolvedY)
+    end
+    if surfaceStats and surfaceStats.defaultExcludeNames then
+        state:SetAttribute("I02SurfaceDefaultExclude", surfaceStats.defaultExcludeNames)
+    end
+    if not surfacePassed then
+        state:SetAttribute("W6Status", "FAIL")
+    end
 
     result = {
         runtime = runtime,
