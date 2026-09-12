@@ -9,6 +9,7 @@ local WorldModules = Astra:WaitForChild("World")
 local SurvivalTransaction = require(WorldModules.SurvivalTransaction)
 local W6Verifier = require(WorldModules.W6Verifier)
 local AffordancePolicy = require(WorldModules.AffordancePolicy)
+local InventoryShadow = require(Astra.SurvivalCrafting.Adapter.InventoryShadow)
 
 local SurvivalBridgeService = {}
 
@@ -422,19 +423,56 @@ end
 
 function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position, resourceType, amount, transactionId)
     local current = SurvivalBridgeService.Start()
-    local x, z = current.runtime.grid:WorldToCell(position)
+    local grid = current.runtime.grid
+    local x, z = grid:WorldToCell(position)
     if not x then return { ok = false, reason = "outside_world" } end
     local action = resourceType == "Food" and "Forage" or (resourceType == "Wood" and "HarvestWood" or nil)
     if not action then return { ok = false, reason = "unsupported_resource" } end
-    local allowed, reason = current.runtime.affordancePolicy.Evaluate(current.runtime.grid:ReadCell(x, z), action)
+    local allowed, reason = current.runtime.affordancePolicy.Evaluate(grid:ReadCell(x, z), action)
     if not allowed then return { ok = false, reason = reason } end
 
     local free = inventory and inventory:GetFree() or 0
     local tx = current.transactions:Harvest(x, z, resourceType, amount, free, transactionId)
     if tx.ok and not tx.duplicate then
+        -- I3: committed W6 withdrawal → WorldGatherReceipt → Convert → S4, then
+        -- project LivingWorld units onto legacy Carry_*. Eat/Drink are not shadowed.
+        local context = resourceType == "Food" and { source = "forage" } or {}
+        local shadow, shadowReason = InventoryShadow.ApplyCommittedHarvest({
+            transactionId = tx.transactionId,
+            actorId = tostring(actorKey),
+            worldTick = current.runtime.clock.tick,
+            cellKey = grid:Key(x, z),
+            worldResourceType = resourceType,
+            actualWithdrawn = tx.actual,
+            context = context,
+        })
+        if shadow and shadow.ok then
+            tx.shadow = shadow
+            tx.receipt = shadow.receipt
+        else
+            -- W6 withdraw already committed; keep Carry projection for P and
+            -- surface the shadow failure without rolling back world authority.
+            tx.shadowError = tostring(shadowReason or (shadow and shadow.reason) or "unknown")
+        end
         local accepted = inventory:Add(resourceType, tx.actual)
         assert(math.abs(accepted - tx.actual) < 1e-6, "W6 inventory reservation invariant violated")
+        if shadow and shadow.ok then
+            InventoryShadow.EnsureLegacyProjection(tostring(actorKey), inventory)
+        end
         routes[routeKey(actorKey, resourceType)] = nil
+    elseif tx.ok and tx.duplicate then
+        -- Idempotent W6 retry: re-apply shadow (also idempotent on transactionId)
+        -- so S4/Carry stay aligned without duplicating.
+        local context = resourceType == "Food" and { source = "forage" } or {}
+        InventoryShadow.ApplyCommittedHarvest({
+            transactionId = tx.transactionId,
+            actorId = tostring(actorKey),
+            worldTick = current.runtime.clock.tick,
+            cellKey = grid:Key(x, z),
+            worldResourceType = resourceType,
+            actualWithdrawn = tx.actual,
+            context = context,
+        })
     end
     publishStats(current)
     return tx
@@ -459,6 +497,13 @@ function SurvivalBridgeService.DepositInventory(actorKey, inventory, colonyState
         if accepted > 0 then
             local removed = inventory:Remove(resourceType, accepted)
             assert(math.abs(removed - accepted) < 1e-6, "W6 colony transfer invariant violated")
+            -- I3: remove once from S4 + LivingWorld projection for the same units.
+            InventoryShadow.RemoveLegacyProjection(
+                tostring(actorKey),
+                resourceType,
+                accepted,
+                tostring(transactionId) .. ":i3:" .. tostring(resourceType)
+            )
             deposited[resourceType] = accepted
             total += accepted
         end

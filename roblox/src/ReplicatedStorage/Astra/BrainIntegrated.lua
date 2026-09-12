@@ -13,6 +13,7 @@ local Storage = require(script.Parent.Storage)
 local Construction = require(script.Parent.Construction)
 local Planner = require(script.Parent.Planner)
 local Needs = require(script.Parent.Needs)
+local InventoryShadow = require(script.Parent.SurvivalCrafting.Adapter.InventoryShadow)
 
 local BrainIntegrated = {}
 local runningAgents = setmetatable({}, { __mode = "k" })
@@ -91,9 +92,12 @@ end
 local function updateInventoryDebug(state)
     debug(state.agent, "CarryTotal", state.inventory:GetTotal())
     debug(state.agent, "CarryCapacity", state.inventory.capacity)
+    local actorId = state.agent.Name
     for resourceType in pairs(Config.ResourceTypes) do
         debug(state.agent, "Carry_" .. resourceType, state.inventory:Get(resourceType))
         debug(state.agent, "CarryWorld_" .. resourceType, state.worldCarried[resourceType] or 0)
+        -- I3: S4-backed LivingWorld projection cap (Carry must not exceed for LW units).
+        debug(state.agent, "CarryS4_" .. resourceType, InventoryShadow.ProjectedAmount(actorId, resourceType))
     end
 end
 
@@ -171,6 +175,18 @@ local function cleanupExpiringMap(map, tick)
     for key, expiresTick in pairs(map) do
         if type(expiresTick) == "number" and tick > expiresTick then map[key] = nil end
     end
+end
+
+local function nextI3Tx(state, kind, resourceType)
+    state.i3TxSeq = (state.i3TxSeq or 0) + 1
+    return string.format(
+        "i3:%s:%s:%s:%d:%d",
+        kind,
+        state.agent.Name,
+        tostring(resourceType),
+        state.tick,
+        state.i3TxSeq
+    )
 end
 
 local function addWorldProvenance(state, resourceType, amount)
@@ -517,7 +533,16 @@ local function deliverMaterials(state)
             local accepted = ResourceEconomy.DeliverToBuildSite(state.folders.state, resourceType, math.min(carried, missing))
             if accepted > 0 then
                 state.inventory:Remove(resourceType, accepted)
-                worldDelivered += consumeWorldProvenance(state, resourceType, accepted)
+                local worldAmount = consumeWorldProvenance(state, resourceType, accepted)
+                worldDelivered += worldAmount
+                if worldAmount > 0 then
+                    InventoryShadow.RemoveLegacyProjection(
+                        state.agent.Name,
+                        resourceType,
+                        worldAmount,
+                        nextI3Tx(state, "deliver", resourceType)
+                    )
+                end
                 table.insert(delivered, resourceType .. "+" .. tostring(accepted))
             end
         end
@@ -556,7 +581,16 @@ local function depositResources(state)
         if accepted > 0 then
             state.inventory:Remove(resourceType, accepted)
             depositedTotal += accepted
-            worldDeposited += consumeWorldProvenance(state, resourceType, accepted)
+            local worldAmount = consumeWorldProvenance(state, resourceType, accepted)
+            worldDeposited += worldAmount
+            if worldAmount > 0 then
+                InventoryShadow.RemoveLegacyProjection(
+                    state.agent.Name,
+                    resourceType,
+                    worldAmount,
+                    nextI3Tx(state, "deposit", resourceType)
+                )
+            end
             table.insert(summary, resourceType .. "+" .. tostring(accepted))
             state.folders.state:SetAttribute("P2_Deposited_" .. resourceType, true)
         end
@@ -882,6 +916,7 @@ function BrainIntegrated.Start(agent, services)
         pathCacheHits = 0,
         worldBridge = services and services.survivalBridge or nil,
         worldCarried = {},
+        i3TxSeq = 0,
         discoveredResources = {},
         discoveryCount = 0,
     }
