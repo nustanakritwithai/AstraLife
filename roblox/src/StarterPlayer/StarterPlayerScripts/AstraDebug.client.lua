@@ -62,7 +62,7 @@ toggleButton.BorderSizePixel = 0
 toggleButton.TextColor3 = Color3.fromRGB(245, 248, 255)
 toggleButton.Font = Enum.Font.GothamBold
 toggleButton.TextSize = 22
-toggleButton.Text = "+"
+toggleButton.Text = "−"
 toggleButton.AutoButtonColor = true
 toggleButton.Parent = header
 
@@ -79,7 +79,7 @@ body.BorderSizePixel = 0
 body.ScrollBarThickness = 5
 body.ScrollingDirection = Enum.ScrollingDirection.Y
 body.CanvasSize = UDim2.fromOffset(0, 0)
-body.Visible = false
+body.Visible = true
 body.Parent = panel
 
 local label = Instance.new("TextLabel")
@@ -95,7 +95,7 @@ label.TextSize = 12
 label.TextWrapped = false
 label.Parent = body
 
-local expanded = false
+local expanded = true
 local expandedSize = UDim2.new(0.94, 0, 0, 560)
 local collapsedSize = UDim2.fromOffset(390, 44)
 

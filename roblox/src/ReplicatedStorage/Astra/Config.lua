@@ -38,12 +38,12 @@ Config.MessageRegistryTTL = 24
 Config.MessageRegistryCleanupIntervalTicks = 6
 
 -- P4 survival needs: 100 = fully satisfied, 0 = critical.
-Config.HungerStart = 70
+Config.HungerStart = 85
 Config.HungerDecayPerTick = 2.5
 Config.HungerLow = 45
 Config.HungerCritical = 15
 Config.FoodRestore = 55
-Config.ThirstStart = 68
+Config.ThirstStart = 85
 Config.ThirstDecayPerTick = 3.5
 Config.ThirstLow = 45
 Config.ThirstCritical = 15
@@ -64,8 +64,8 @@ Config.CriticalNeedDamage = 4
 Config.HealthyRecovery = 1
 Config.SurvivalStockTargetFood = 10
 Config.SurvivalStockTargetWater = 10
-Config.DemoStartingFood = 8
-Config.DemoStartingWater = 8
+Config.DemoStartingFood = 24
+Config.DemoStartingWater = 24
 
 -- Legacy P5 fallback values. When W2 is online, climate authority comes from AstraLivingWorldState.
 Config.DayLengthTicks = 24

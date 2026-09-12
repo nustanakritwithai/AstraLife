@@ -125,7 +125,9 @@ function TerrainGenerator:Generate(grid, dirtyTracker)
             })
             local biome = BiomeCatalog.Get(biomeName)
             local height = (field.elevation - self.config.seaLevel) * self.config.heightScale
-            local surfaceWater = biomeName == "Ocean" and 1 or (biomeName == "Wetland" and 0.12 or 0)
+            -- Wetland surface water sits above the drink affordance minimum
+            -- (0.20) so freshwater wetlands are actually survivable.
+            local surfaceWater = biomeName == "Ocean" and 1 or (biomeName == "Wetland" and 0.25 or 0)
             local walkable = biome.walkable and slope < 0.78
 
             grid:UpdateCell(x, z, {
