@@ -445,6 +445,8 @@ function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position,
             worldResourceType = resourceType,
             actualWithdrawn = tx.actual,
             context = context,
+            toolClass = resourceType == "Wood" and "axe" or "hand",
+            toolTier = 0,
         })
         if shadow and shadow.ok then
             tx.shadow = shadow
@@ -464,15 +466,22 @@ function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position,
         -- Idempotent W6 retry: re-apply shadow (also idempotent on transactionId)
         -- so S4/Carry stay aligned without duplicating.
         local context = resourceType == "Food" and { source = "forage" } or {}
-        InventoryShadow.ApplyCommittedHarvest({
-            transactionId = tx.transactionId,
-            actorId = tostring(actorKey),
-            worldTick = current.runtime.clock.tick,
-            cellKey = grid:Key(x, z),
-            worldResourceType = resourceType,
-            actualWithdrawn = tx.actual,
-            context = context,
-        })
+        if (tx.actual or 0) > 0 then
+            InventoryShadow.ApplyCommittedHarvest({
+                transactionId = tx.transactionId,
+                actorId = tostring(actorKey),
+                worldTick = current.runtime.clock.tick,
+                cellKey = grid:Key(x, z),
+                worldResourceType = resourceType,
+                actualWithdrawn = tx.actual,
+                context = context,
+                toolClass = resourceType == "Wood" and "axe" or "hand",
+                toolTier = 0,
+            })
+            if inventory then
+                InventoryShadow.EnsureLegacyProjection(tostring(actorKey), inventory)
+            end
+        end
     end
     publishStats(current)
     return tx
@@ -502,7 +511,8 @@ function SurvivalBridgeService.DepositInventory(actorKey, inventory, colonyState
                 tostring(actorKey),
                 resourceType,
                 accepted,
-                tostring(transactionId) .. ":i3:" .. tostring(resourceType)
+                tostring(transactionId) .. ":i3:" .. tostring(resourceType),
+                resourceType == "Food" and { context = { source = "forage" } } or nil
             )
             deposited[resourceType] = accepted
             total += accepted

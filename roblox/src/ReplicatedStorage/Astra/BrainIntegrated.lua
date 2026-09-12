@@ -491,6 +491,14 @@ local function gatherFromLivingWorld(state)
         state.folders.state:SetAttribute("W6_WorldHarvestObserved", true)
         state.folders.state:SetAttribute("P2_CarryObserved", true)
         state.folders.state:SetAttribute("P2_LastCarriedType", resourceType)
+        state.folders.state:SetAttribute("I3_ShadowHarvestObserved", tx.shadow ~= nil and tx.shadow.ok == true)
+        if tx.receipt then
+            debug(state.agent, "I3LastReceiptId", tx.receipt.transactionId)
+            debug(state.agent, "I3LastSourceKind", tx.receipt.sourceKind)
+        end
+        if tx.shadowError then
+            debug(state.agent, "I3ShadowError", tostring(tx.shadowError))
+        end
         debug(state.agent, "W6LastTransaction", tx.transactionId)
         remember(state, "resource_carried", {
             sourceType = "living_world",
@@ -498,6 +506,7 @@ local function gatherFromLivingWorld(state)
             amount = tx.actual,
             transactionId = tx.transactionId,
             position = state.root.Position,
+            i3Shadowed = tx.shadow ~= nil and tx.shadow.ok == true,
         }, 0.95)
         return true
     end
@@ -540,7 +549,8 @@ local function deliverMaterials(state)
                         state.agent.Name,
                         resourceType,
                         worldAmount,
-                        nextI3Tx(state, "deliver", resourceType)
+                        nextI3Tx(state, "deliver", resourceType),
+                        resourceType == "Food" and { context = { source = "forage" } } or nil
                     )
                 end
                 table.insert(delivered, resourceType .. "+" .. tostring(accepted))
@@ -588,7 +598,8 @@ local function depositResources(state)
                     state.agent.Name,
                     resourceType,
                     worldAmount,
-                    nextI3Tx(state, "deposit", resourceType)
+                    nextI3Tx(state, "deposit", resourceType),
+                    resourceType == "Food" and { context = { source = "forage" } } or nil
                 )
             end
             table.insert(summary, resourceType .. "+" .. tostring(accepted))
