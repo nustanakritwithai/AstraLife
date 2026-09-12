@@ -1,0 +1,41 @@
+name: Build AstraLife Roblox P7.5 W7 Integration
+
+on:
+  push:
+    branches:
+      - feat/roblox-p75-w7-integration
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-p75-w7-integration-build.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "roblox/**"
+      - "rokit.toml"
+      - ".github/workflows/roblox-p75-w7-integration-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: "v1.1.0"
+
+      - name: Build integrated Roblox place
+        run: rojo build roblox/default.project.json -o AstraLife-P75-W7-Integration.rbxl
+
+      - name: Upload integrated place
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstraLife-P75-W7-Integration
+          path: AstraLife-P75-W7-Integration.rbxl
+          if-no-files-found: error
+          retention-days: 14

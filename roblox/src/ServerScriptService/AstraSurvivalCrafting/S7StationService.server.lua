@@ -1,0 +1,11 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SurvivalCrafting = ReplicatedStorage.Astra.SurvivalCrafting
+local StateWriter = require(SurvivalCrafting.Core.StateWriter)
+local StationCatalog = require(SurvivalCrafting.S7.StationCatalog)
+local S7Verifier = require(SurvivalCrafting.S7.S7Verifier)
+local scope = StateWriter.Scope("S7Stations")
+scope:SetAttribute("Version", "S7-1")
+scope:SetAttribute("OwnsStationInstances", false)
+scope:SetAttribute("OwnsFuelConsumption", false)
+scope:SetAttribute("StationMode", "capability-contract")
+S7Verifier.Verify(StationCatalog, scope)
