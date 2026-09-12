@@ -10,7 +10,7 @@ local ItemCatalog = require(script.Parent.Parent.S1.ItemCatalog)
 local CraftedBuildPartMapping = require(script.Parent.Parent.Parent.Building.CraftedBuildPartMapping)
 
 local ProfessionAdapter = {}
-ProfessionAdapter.Version = "I6-1"
+ProfessionAdapter.Version = "I6-2"
 ProfessionAdapter.ProfessionMode = "adapter"
 
 local ROLE_ACTIONS = {
@@ -124,19 +124,9 @@ local function bestToolForContract(actorId, contract)
 		end
 	end
 
-	if not best and preferredClass ~= "hand" and minTier <= 0 then
-		-- Tier-0 axe/pick contracts still allow forage-style fallbacks only when minTier is 0
-		-- and GatheringContracts.CanGather accepts hand for hand-class sources. For axe/pick
-		-- with minTier 0, default Hand fails CanGather — return a virtual matching class at
-		-- tier 0 so quotes remain valid without inventing inventory tools (W6 still harvests).
-		best = {
-			id = "Virtual:" .. preferredClass,
-			class = preferredClass,
-			tier = 0,
-			efficiency = 1,
-			virtual = true,
-		}
-	elseif not best then
+	-- Prefer real S4 tools only. Never invent Virtual:axe/pick — fail quote via hand
+	-- mismatch (CanGather rejects) so callers equip a real tool or use hand-class sources.
+	if not best then
 		best = handTool()
 	end
 
@@ -246,8 +236,11 @@ function ProfessionAdapter.PickPlaceableBuildPart(actorId)
 end
 
 -- S4-backed economy for B1 Repair/Upgrade/Demolish recipes keyed by Wood/Stone/Metal.
-function ProfessionAdapter.MakeS4Economy(actorId)
+-- transactionId must be the caller place/repair tx so each Spend/Deposit id is unique.
+function ProfessionAdapter.MakeS4Economy(actorId, transactionId)
 	local inv = InventoryRegistry.Get(actorId)
+	local txBase = (type(transactionId) == "string" and transactionId ~= "" and transactionId)
+		or ("i6:economy:" .. tostring(actorId))
 	return {
 		CanAfford = function(_, recipe)
 			for resourceType, amount in pairs(recipe or {}) do
@@ -264,7 +257,8 @@ function ProfessionAdapter.MakeS4Economy(actorId)
 				local itemId = COLONY_TO_S1[resourceType] or resourceType
 				local need = math.ceil(math.max(0, tonumber(amount) or 0))
 				if need > 0 then
-					local result = inv:Remove(itemId, need, "i6:economy:" .. actorId .. ":" .. itemId .. ":" .. tostring(need))
+					local removeId = txBase .. ":remove:" .. itemId .. ":" .. tostring(need)
+					local result = inv:Remove(itemId, need, removeId)
 					if not result or (result.removed or 0) < need then
 						return false
 					end
@@ -281,18 +275,22 @@ function ProfessionAdapter.MakeS4Economy(actorId)
 				local qty = math.floor(math.max(0, tonumber(amount) or 0))
 				if qty > 0 then
 					local catalog = ItemCatalog.Get(itemId)
+					local addId = txBase .. ":refund:" .. itemId
 					inv:Add({
 						itemId = itemId,
 						quantity = qty,
 						maxStack = catalog and catalog.maxStack or 50,
 						metadata = { provenance = "B1Refund" },
-					}, "i6:refund:" .. actorId .. ":" .. itemId)
+					}, addId)
 				end
 			end
 			return true
 		end,
 	}
 end
+
+-- Successful PlaceRoot results keyed by transactionId (adapter-level dedupe).
+local placedByTransaction = {}
 
 -- Consume one crafted build part from S4 and place via B1 PlaceRoot (W5 gated inside).
 function ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, spec)
@@ -313,6 +311,13 @@ function ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, spec)
 	end
 	if not BuildingLifecycleService or not BuildingLifecycleService.PlaceRoot then
 		return nil, "lifecycle_unavailable"
+	end
+
+	local priorPlace = placedByTransaction[transactionId]
+	if priorPlace then
+		local dup = clone(priorPlace)
+		dup.duplicate = true
+		return dup, "duplicate"
 	end
 
 	local mapping = CraftedBuildPartMapping.Get(itemId)
@@ -336,7 +341,8 @@ function ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, spec)
 		return nil, "missing_build_part"
 	end
 
-	local removed = inv:Remove(itemId, 1, transactionId .. ":consume")
+	local consumeId = transactionId .. ":consume"
+	local removed = inv:Remove(itemId, 1, consumeId)
 	-- InventoryV2 remembers by transactionId; retries return the prior removed count.
 	if not removed or (removed.removed or 0) < 1 then
 		return nil, "consume_failed"
@@ -350,7 +356,8 @@ function ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, spec)
 		source = "I6ProfessionAdapter",
 	})
 	if not piece then
-		-- Best-effort refund on place failure (new tx suffix to avoid clobbering consume dedupe).
+		-- Refund, then clear consume memory so a retry with the same tx re-consumes honestly
+		-- (failed-then-refunded txs are not reusable as free placements).
 		local catalog = ItemCatalog.Get(itemId)
 		inv:Add({
 			itemId = itemId,
@@ -358,10 +365,14 @@ function ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, spec)
 			maxStack = catalog and catalog.maxStack or 50,
 			metadata = { provenance = "I6PlaceRefund" },
 		}, transactionId .. ":refund")
+		if inv.ForgetTransaction then
+			inv:ForgetTransaction(consumeId)
+			inv:ForgetTransaction(transactionId .. ":refund")
+		end
 		return nil, reason or "place_failed"
 	end
 
-	return {
+	local result = {
 		ok = true,
 		pieceId = piece.id,
 		pieceType = piece.pieceType,
@@ -372,6 +383,8 @@ function ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, spec)
 		eventName = "BuildingPlaced",
 		authority = "B1",
 	}
+	placedByTransaction[transactionId] = result
+	return result
 end
 
 function ProfessionAdapter.RepairPiece(BuildingLifecycleService, spec)
@@ -394,7 +407,7 @@ function ProfessionAdapter.RepairPiece(BuildingLifecycleService, spec)
 		return nil, "lifecycle_unavailable"
 	end
 
-	local economy = ProfessionAdapter.MakeS4Economy(actorId)
+	local economy = ProfessionAdapter.MakeS4Economy(actorId, transactionId)
 	local repaired = BuildingLifecycleService.Repair(pieceId, economy, spec.requestedHealth, transactionId)
 	if not repaired or not repaired.ok then
 		return nil, (repaired and repaired.reason) or "repair_failed"

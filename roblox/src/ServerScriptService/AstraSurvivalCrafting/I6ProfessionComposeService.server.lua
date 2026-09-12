@@ -106,7 +106,8 @@ scope:SetAttribute("Version", ProfessionAdapter.Version)
 scope:SetAttribute("I6ProfessionMode", ProfessionAdapter.ProfessionMode)
 scope:SetAttribute("OwnsRoleSkillGoal", false)
 scope:SetAttribute("OwnsWorldResources", false)
-scope:SetAttribute("BuildingAuthority", "B1")
+scope:SetAttribute("BuildingAuthority", "B1-preferred+P3-fallback")
+scope:SetAttribute("I6DualBuildingTruth", true)
 scope:SetAttribute("GatherPolicy", "S2+S3-quote")
 scope:SetAttribute("P7XpMode", "outcome-events-only")
 
@@ -183,6 +184,24 @@ task.defer(function()
 		scope:SetAttribute("I6WiredI4CraftOutcome", true)
 	else
 		scope:SetAttribute("I6WiredI4CraftOutcome", false)
+	end
+end)
+
+-- Wire StationProcessingCompleted the same way (I4 station-hosted commits; same tx → dedupe).
+task.defer(function()
+	local stationEvent = parent:WaitForChild("I4StationOutcomeEvent", 60)
+	if stationEvent and stationEvent:IsA("BindableEvent") then
+		stationEvent.Event:Connect(function(outcome)
+			local normalized = P7OutcomeSink.FromStationProcessingCompleted(outcome)
+			if normalized then
+				publishOutcome(normalized)
+			end
+		end)
+		scope:SetAttribute("I6WiredStationOutcome", true)
+	else
+		-- Documented: station commits still arrive via CraftCompleted; dedicated event preferred.
+		scope:SetAttribute("I6WiredStationOutcome", false)
+		scope:SetAttribute("I6StationOutcomeSkipReason", "no_I4StationOutcomeEvent")
 	end
 end)
 

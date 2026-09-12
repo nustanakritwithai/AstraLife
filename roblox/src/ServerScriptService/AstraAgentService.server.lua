@@ -30,6 +30,8 @@ local livingState = livingWorld.runtime.state
 livingState:SetAttribute("W7AgentIntegrated", true)
 livingState:SetAttribute("W6BrainIntegrated", true)
 folders.state:SetAttribute("P75W7IntegrationStatus", "RUNNING")
+-- I6: set before scheduling brains so SkillLearning/Brain see outcome-only mode.
+folders.state:SetAttribute("P7_I6OutcomeOnly", true)
 folders.state:SetAttribute("ScaleRuntimeError", false)
 
 WorldSimulation.Initialize(folders, Config)

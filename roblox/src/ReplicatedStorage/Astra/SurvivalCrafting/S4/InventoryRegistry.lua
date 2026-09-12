@@ -28,6 +28,23 @@ function InventoryRegistry.Reset(actorId)
 	end
 end
 
+-- Delete only actors whose id starts with prefix (e.g. "i6-"). Never wipe the live registry.
+function InventoryRegistry.ResetMatching(prefix)
+	assert(type(prefix) == "string" and prefix ~= "", "prefix required")
+	local removed = 0
+	local toDelete = {}
+	for actorId in pairs(actors) do
+		if string.sub(actorId, 1, #prefix) == prefix then
+			table.insert(toDelete, actorId)
+		end
+	end
+	for _, actorId in ipairs(toDelete) do
+		actors[actorId] = nil
+		removed += 1
+	end
+	return removed
+end
+
 function InventoryRegistry._actorsForTest()
 	return actors
 end

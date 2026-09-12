@@ -100,6 +100,19 @@ function InventoryV2:Add(spec, transactionId)
     return result
 end
 
+function InventoryV2:ForgetTransaction(transactionId)
+    if not transactionId or transactionId == "" then return false end
+    if self.transactions[transactionId] == nil then return false end
+    self.transactions[transactionId] = nil
+    for index, id in ipairs(self.transactionOrder) do
+        if id == transactionId then
+            table.remove(self.transactionOrder, index)
+            break
+        end
+    end
+    return true
+end
+
 function InventoryV2:Remove(itemId, quantity, transactionId)
     if transactionId and self.transactions[transactionId] then return clone(self.transactions[transactionId]) end
     local remaining = math.max(0, math.floor(quantity or 0))

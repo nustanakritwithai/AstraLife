@@ -125,13 +125,17 @@ local function grant(agent, skill, amount, category, eventId, tick, config, worl
     agent:SetAttribute("P7LastLearningReward", reward)
     agent:SetAttribute("P7AntiGrindMultiplier", multiplier)
 
-    worldState:SetAttribute("P7_XPRecorded", true)
-    worldState:SetAttribute("P7_OutcomeLearningObserved", true)
-    worldState:SetAttribute("P6_SkillUpdated", true)
-    if repeatCount > 0 then worldState:SetAttribute("P7_AntiGrindObserved", true) end
+    if worldState then
+        worldState:SetAttribute("P7_XPRecorded", true)
+        worldState:SetAttribute("P7_OutcomeLearningObserved", true)
+        worldState:SetAttribute("P6_SkillUpdated", true)
+        if repeatCount > 0 then worldState:SetAttribute("P7_AntiGrindObserved", true) end
+    end
 
     recomputeSkill(agent, skill, config)
-    worldState:SetAttribute("P7_SkillRecomputed", true)
+    if worldState then
+        worldState:SetAttribute("P7_SkillRecomputed", true)
+    end
     return reward
 end
 
@@ -245,11 +249,15 @@ local function processBuildOutcome(folders, tick, config)
     end
 
     if completedBlueprint and completedBlueprint ~= buildSnapshot.completedBlueprint then
-        local worker = buildSnapshot.worker and folders.agents:FindFirstChild(buildSnapshot.worker) or nil
-        if not worker and workerName and workerName ~= "None" then worker = folders.agents:FindFirstChild(workerName) end
-        if worker then
-            grant(worker, "Builder", config.P7BuilderCompleteXP or 4, "builder_complete", "build:" .. completedBlueprint, tick, config, state)
-            state:SetAttribute("P7_BuildCompletionLearned", true)
+        -- I6 outcome-only: Brain notifies BuildingCompleted (p3:complete:*) — skip SkillLearning
+        -- builder_complete grant so eventIds do not double-award XP.
+        if state:GetAttribute("P7_I6OutcomeOnly") ~= true then
+            local worker = buildSnapshot.worker and folders.agents:FindFirstChild(buildSnapshot.worker) or nil
+            if not worker and workerName and workerName ~= "None" then worker = folders.agents:FindFirstChild(workerName) end
+            if worker then
+                grant(worker, "Builder", config.P7BuilderCompleteXP or 4, "builder_complete", "build:" .. completedBlueprint, tick, config, state)
+                state:SetAttribute("P7_BuildCompletionLearned", true)
+            end
         end
     end
 

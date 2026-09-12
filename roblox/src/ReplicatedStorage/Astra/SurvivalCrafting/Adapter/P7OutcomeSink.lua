@@ -3,7 +3,7 @@
 
 local P7OutcomeSink = {}
 P7OutcomeSink.__index = P7OutcomeSink
-P7OutcomeSink.Version = "I6-1"
+P7OutcomeSink.Version = "I6-2"
 
 local DEFAULT_REWARDS = {
 	harvest_committed = { skill = "Gatherer", amount = 1.6, category = "i6_harvest_committed" },
@@ -198,12 +198,34 @@ function P7OutcomeSink.FromCraftCompleted(outcome)
 	}
 end
 
+-- Station-hosted I4 commits (same commit authority; eventName differs for soak visibility).
+function P7OutcomeSink.FromStationProcessingCompleted(outcome)
+	if type(outcome) ~= "table" then
+		return nil
+	end
+	local station = outcome.station
+	if type(station) ~= "string" or station == "" or station == "hand" then
+		return nil
+	end
+	return {
+		eventName = outcome.eventName or "StationProcessingCompleted",
+		kind = "station_processing_completed",
+		transactionId = outcome.transactionId or outcome.commitTransactionId,
+		actorId = outcome.actorId,
+		recipeId = outcome.recipeId,
+		station = station,
+	}
+end
+
 function P7OutcomeSink.FromHarvest(tx, actorId)
 	if type(tx) ~= "table" or not tx.ok or tx.duplicate then
 		return nil
 	end
-	-- Only after committed W6 + I3 shadow path when present.
-	if tx.shadow and tx.shadow.ok == false then
+	-- Require committed I3 shadow.ok. shadowError / nil shadow are non-outcomes.
+	if tx.shadowError ~= nil then
+		return nil
+	end
+	if not (tx.shadow and tx.shadow.ok) then
 		return nil
 	end
 	return {

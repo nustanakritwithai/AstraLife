@@ -16,6 +16,7 @@ scope:SetAttribute("OwnsLegacyInventory", false)
 scope:SetAttribute("OwnsP7Xp", false)
 scope:SetAttribute("RequiresExternalCommitAdapter", false)
 scope:SetAttribute("OutcomeEventName", CraftingRuntime.OutcomeEventName)
+scope:SetAttribute("StationOutcomeEventName", "StationProcessingCompleted")
 scope:SetAttribute("Chain", "S4→S5→S6→S7→S10→S4")
 
 local parent = ServerScriptService:FindFirstChild("AstraSurvivalCrafting") or ServerScriptService
@@ -28,6 +29,10 @@ local existingEvent = parent:FindFirstChild("I4CraftOutcomeEvent")
 if existingEvent then
 	existingEvent:Destroy()
 end
+local existingStationEvent = parent:FindFirstChild("I4StationOutcomeEvent")
+if existingStationEvent then
+	existingStationEvent:Destroy()
+end
 
 -- Runtime used by the live Bindable API (separate from verifier's fresh instances).
 local runtime = CraftingRuntime.new({ maxJobs = 32 })
@@ -35,8 +40,27 @@ local runtime = CraftingRuntime.new({ maxJobs = 32 })
 local outcomeEvent = Instance.new("BindableEvent")
 outcomeEvent.Name = "I4CraftOutcomeEvent"
 outcomeEvent.Parent = parent
+
+-- Station-hosted commits also emit StationProcessingCompleted (same transactionId → P7 dedupe).
+local stationOutcomeEvent = Instance.new("BindableEvent")
+stationOutcomeEvent.Name = "I4StationOutcomeEvent"
+stationOutcomeEvent.Parent = parent
+
 runtime:OnOutcome(function(outcome)
 	outcomeEvent:Fire(outcome)
+	local station = outcome and outcome.station
+	if type(station) == "string" and station ~= "" and station ~= "hand" then
+		local stationPayload = table.clone and table.clone(outcome) or nil
+		if not stationPayload then
+			stationPayload = {}
+			for k, v in pairs(outcome) do
+				stationPayload[k] = v
+			end
+		end
+		stationPayload.eventName = "StationProcessingCompleted"
+		stationPayload.kind = "station_processing_completed"
+		stationOutcomeEvent:Fire(stationPayload)
+	end
 end)
 
 local api = Instance.new("BindableFunction")

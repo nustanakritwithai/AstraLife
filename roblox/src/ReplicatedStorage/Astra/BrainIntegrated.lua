@@ -197,14 +197,30 @@ local function i6Api()
     return parent and parent:FindFirstChild("I6ProfessionApi")
 end
 
+-- Wait/queue until I6ProfessionApi exists (bounded). Never silent-drop outcomes before API boots.
+local I6_OUTCOME_WAIT_SECONDS = 45
 local function i6NotifyOutcome(payload)
-    local api = i6Api()
-    if api then
-        local ok = pcall(function()
+    if type(payload) ~= "table" then
+        return
+    end
+    task.spawn(function()
+        local api = i6Api()
+        if not api then
+            local sss = game:GetService("ServerScriptService")
+            local parent = sss:FindFirstChild("AstraSurvivalCrafting")
+                or sss:WaitForChild("AstraSurvivalCrafting", I6_OUTCOME_WAIT_SECONDS)
+            if parent then
+                api = parent:FindFirstChild("I6ProfessionApi")
+                    or parent:WaitForChild("I6ProfessionApi", I6_OUTCOME_WAIT_SECONDS)
+            end
+        end
+        if not api then
+            return
+        end
+        pcall(function()
             api:Invoke("IngestOutcome", payload)
         end)
-        if ok then return end
-    end
+    end)
 end
 
 local function i6HarvestOpts(state, resourceType)
@@ -929,7 +945,7 @@ local function executeBuild(state)
         return
     end
 
-    -- Compatibility: legacy P3 Construction.lua sites (not new S/B authority).
+    -- Compatibility: legacy P3 Construction.lua remains (dual-truth with B1; soak via I6_BuilderUsedP3Fallback).
     local active = Construction.GetActive()
     if not active then
         local blueprint = Construction.GetNextBlueprint(state.folders, Config)
@@ -943,6 +959,10 @@ local function executeBuild(state)
         return
     end
 
+    -- Compatibility dual-truth: Builder is on the legacy P3 Construction path.
+    state.folders.state:SetAttribute("I6_BuilderUsedP3Fallback", true)
+    state.agent:SetAttribute("I6_BuilderUsedP3Fallback", true)
+
     local ok, status, detail = Construction.Step(state.agent, state.folders, Config, state.tick)
     if ok and status == "completed" then
         remember(state, "structure_built", {
@@ -950,7 +970,9 @@ local function executeBuild(state)
             blueprint = active.blueprint.id,
             position = active.position,
         }, 1.0)
-        -- Outcome for legacy completion (deduped by blueprint id).
+        state.folders.state:SetAttribute("I6_BuilderUsedP3Fallback", true)
+        -- Outcome for legacy completion (deduped by blueprint id). SkillLearning skips
+        -- builder_complete under P7_I6OutcomeOnly so this is the sole XP authority.
         i6NotifyOutcome({
             eventName = "BuildingCompleted",
             kind = "building_completed",

@@ -163,6 +163,8 @@ folders.state:SetAttribute("P7Status", "RUNNING")
 folders.state:SetAttribute("Scale12Status", "RUNNING")
 folders.state:SetAttribute("Scale12LongRunStatus", "RUNNING")
 folders.state:SetAttribute("P75W7IntegrationStatus", "BOOTING")
+-- I6: outcome-only XP must be on before AgentService starts brains.
+folders.state:SetAttribute("P7_I6OutcomeOnly", true)
 
 ensureResources()
 ensureAgents()

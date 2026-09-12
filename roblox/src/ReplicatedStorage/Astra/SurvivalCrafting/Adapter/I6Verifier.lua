@@ -1,6 +1,7 @@
 -- I6 profession compose verifier:
 -- Gatherer uses S2/S3 quotes without S withdrawing world resources;
--- Builder mutations go through B1; P7 XP only on outcome events (deduped);
+-- Builder prefers B1 (P3 Construction remains compatibility dual-truth);
+-- P7 XP only on outcome events (deduped); never global-reset live S4 after I3.
 -- P6 roles unchanged by S/K; I3/I4/I5 non-regression.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,6 +21,17 @@ local CraftedBuildPartMapping = require(Astra.Building.CraftedBuildPartMapping)
 
 local I6Verifier = {}
 
+local VERIFY_PREFIX = "i6-"
+local VERIFY_ACTORS = {
+	"i6-gatherer",
+	"i6-gatherer-tool",
+	"i6-builder",
+	"i6-repair",
+	"i6-economy-a",
+	"i6-economy-b",
+	"i6-place-retry",
+}
+
 local function addError(errors, name)
 	table.insert(errors, name)
 end
@@ -31,6 +43,16 @@ end
 local function scopeStatus(root, scopeName, attr)
 	local scope = root and root:FindFirstChild(scopeName)
 	return scope and scope:GetAttribute(attr) or nil
+end
+
+local function cleanupVerifierActors()
+	if InventoryRegistry.ResetMatching then
+		InventoryRegistry.ResetMatching(VERIFY_PREFIX)
+	else
+		for _, actorId in ipairs(VERIFY_ACTORS) do
+			InventoryRegistry.Reset(actorId)
+		end
+	end
 end
 
 local function seedItem(actorId, itemId, quantity, prefix)
@@ -47,7 +69,14 @@ end
 function I6Verifier.Verify(deps, scope)
 	deps = deps or {}
 	local errors = {}
-	InventoryRegistry.Reset()
+
+	-- Isolate verifier inventories: NEVER InventoryRegistry.Reset() global after I3 is live.
+	local liveSentinel = "__i6_live_sentinel_probe__"
+	local hadSentinel = InventoryRegistry.Has(liveSentinel)
+	if not hadSentinel then
+		InventoryRegistry.Get(liveSentinel, 1)
+	end
+	cleanupVerifierActors()
 
 	-- 1) ProfessionAdapter does not steal Role/Skill authority and does not withdraw world.
 	if ProfessionAdapter.WritesRoleSkillGoal() ~= false then
@@ -69,15 +98,22 @@ function I6Verifier.Verify(deps, scope)
 		addError(errors, "scout_must_not_harvest")
 	end
 
-	-- 2) Gatherer S2/S3 quotes (no world withdraw). Wood + Hand forage path still valid.
+	-- 2) Gatherer S2/S3 quotes (no world withdraw). No Virtual:axe invention.
 	local woodQuote = ProfessionAdapter.QuoteGather("Wood", "i6-gatherer")
 	if not woodQuote
 		or woodQuote.withdrewWorld ~= false
 		or woodQuote.sourceKind ~= "Tree"
-		or woodQuote.toolClass ~= "axe"
-		or woodQuote.contractToolClass ~= "axe"
 	then
 		addError(errors, "gather_wood_s2_s3_quote")
+	end
+	if woodQuote and (woodQuote.toolVirtual == true
+		or (type(woodQuote.toolId) == "string" and string.find(woodQuote.toolId, "Virtual:", 1, true)))
+	then
+		addError(errors, "gather_no_virtual_tool")
+	end
+	-- Without a real S4 axe, Tree quote must fail (hand mismatch) rather than invent a tool.
+	if woodQuote and woodQuote.ok ~= false then
+		addError(errors, "gather_wood_requires_real_tool")
 	end
 
 	local foodQuote = ProfessionAdapter.QuoteGather("Food", "i6-gatherer")
@@ -110,6 +146,7 @@ function I6Verifier.Verify(deps, scope)
 	end
 
 	-- 3) Builder mutations go through B1 (stub lifecycle) + crafted mapping / S4 spend.
+	-- Construction.lua remains compatibility fallback (dual-truth); do not claim sole B1 authority.
 	if CraftedBuildPartMapping.Get("WoodFoundation") == nil then
 		addError(errors, "crafted_mapping_missing")
 	end
@@ -177,6 +214,66 @@ function I6Verifier.Verify(deps, scope)
 		addError(errors, "builder_consumed_s4_part")
 	end
 
+	-- Place dedupe by transactionId (second call must not PlaceRoot again).
+	local placeDup = ProfessionAdapter.PlaceCraftedPart(stubLifecycle, {
+		actorId = "i6-builder",
+		itemId = "WoodFoundation",
+		position = Vector3.new(0, 0, 0),
+		yawDegrees = 0,
+		transactionId = "i6:place:1",
+	})
+	if not placeDup or placeDup.duplicate ~= true or #placedCalls ~= 1 then
+		addError(errors, "builder_place_tx_dedupe")
+	end
+
+	-- Failed place + refund must clear consume memory (retry re-consumes; no free piece).
+	seedItem("i6-place-retry", "WoodFoundation", 1, "i6-seed-retry")
+	local failCalls = 0
+	local failLifecycle = {
+		PreviewRoot = function(pieceType, _position, _yaw)
+			return {
+				allowed = true,
+				reason = nil,
+				cframe = CFrame.new(0, 0, 0),
+				surfaceY = 0,
+				pieceType = pieceType,
+			}
+		end,
+		PlaceRoot = function(_pieceType, _position, _yaw, _metadata)
+			failCalls += 1
+			if failCalls == 1 then
+				return nil, "simulated_place_fail"
+			end
+			return { id = "piece-i6-retry", pieceType = "FoundationSquare" }, nil
+		end,
+	}
+	local failResult, failReason = ProfessionAdapter.PlaceCraftedPart(failLifecycle, {
+		actorId = "i6-place-retry",
+		itemId = "WoodFoundation",
+		position = Vector3.new(1, 0, 0),
+		yawDegrees = 0,
+		transactionId = "i6:place:retry",
+	})
+	if failResult ~= nil or failReason ~= "simulated_place_fail" then
+		addError(errors, "builder_place_fail_refund:" .. tostring(failReason))
+	end
+	if InventoryRegistry.Get("i6-place-retry"):Count("WoodFoundation") ~= 1 then
+		addError(errors, "builder_place_fail_restored_part")
+	end
+	local retryResult = ProfessionAdapter.PlaceCraftedPart(failLifecycle, {
+		actorId = "i6-place-retry",
+		itemId = "WoodFoundation",
+		position = Vector3.new(1, 0, 0),
+		yawDegrees = 0,
+		transactionId = "i6:place:retry",
+	})
+	if not retryResult or retryResult.pieceId ~= "piece-i6-retry" then
+		addError(errors, "builder_place_retry_reconsumes")
+	end
+	if InventoryRegistry.Get("i6-place-retry"):Count("WoodFoundation") ~= 0 then
+		addError(errors, "builder_place_retry_consumed")
+	end
+
 	seedItem("i6-repair", "Log", 5, "i6-seed-log")
 	local repairResult, repairReason = ProfessionAdapter.RepairPiece(stubLifecycle, {
 		actorId = "i6-repair",
@@ -185,6 +282,25 @@ function I6Verifier.Verify(deps, scope)
 	})
 	if not repairResult or repairResult.authority ~= "B1" or repairResult.eventName ~= "BuildingRepaired" then
 		addError(errors, "builder_repair_through_b1:" .. tostring(repairReason))
+	end
+
+	-- Economy Remove/Add ids must include caller transactionId (second repair Spend must work).
+	seedItem("i6-economy-a", "Log", 4, "i6-seed-econ-a")
+	local repair2, repair2Reason = ProfessionAdapter.RepairPiece(stubLifecycle, {
+		actorId = "i6-economy-a",
+		pieceId = "piece-i6-econ",
+		transactionId = "i6:repair:2",
+	})
+	local repair3, repair3Reason = ProfessionAdapter.RepairPiece(stubLifecycle, {
+		actorId = "i6-economy-a",
+		pieceId = "piece-i6-econ",
+		transactionId = "i6:repair:3",
+	})
+	if not repair2 or not repair3 then
+		addError(errors, "economy_tx_unique_spend:" .. tostring(repair2Reason) .. "/" .. tostring(repair3Reason))
+	end
+	if InventoryRegistry.Get("i6-economy-a"):Count("Log") ~= 2 then
+		addError(errors, "economy_tx_spent_twice")
 	end
 
 	-- 4) P7 outcome sink: XP only on outcomes; Start/Step/pending rejected; dedupe by tx.
@@ -249,6 +365,59 @@ function I6Verifier.Verify(deps, scope)
 		addError(errors, "p7_craft_dedupe")
 	end
 
+	-- StationProcessingCompleted accepted (wired like CraftCompleted; same tx dedupes).
+	local stationOutcome = sink:Ingest({
+		eventName = "StationProcessingCompleted",
+		kind = "station_processing_completed",
+		transactionId = "i6:station:commit:1",
+		actorId = "i6-builder",
+	})
+	if not stationOutcome.ok or (stationOutcome.granted or 0) <= 0 then
+		addError(errors, "p7_station_processing_completed")
+	end
+	if not P7OutcomeSink.FromStationProcessingCompleted then
+		addError(errors, "p7_from_station_helper_missing")
+	else
+		local normalizedStation = P7OutcomeSink.FromStationProcessingCompleted({
+			transactionId = "i6:station:norm:1",
+			actorId = "i6-builder",
+			station = "campfire",
+			recipeId = "CookMeat",
+		})
+		if not normalizedStation or normalizedStation.eventName ~= "StationProcessingCompleted" then
+			addError(errors, "p7_from_station_shape")
+		end
+		local handSkip = P7OutcomeSink.FromStationProcessingCompleted({
+			transactionId = "i6:station:hand",
+			actorId = "i6-builder",
+			station = "hand",
+		})
+		if handSkip ~= nil then
+			addError(errors, "p7_station_skips_hand")
+		end
+	end
+
+	-- Harvest requires shadow.ok; shadowError / nil shadow are non-outcomes.
+	local harvestBadShadow = P7OutcomeSink.FromHarvest({
+		ok = true,
+		duplicate = false,
+		transactionId = "i6:harvest:bad",
+		shadowError = "convert_failed",
+		receipt = { actorId = "i6-gatherer", sourceKind = "Tree", worldResourceType = "Wood" },
+	}, "i6-gatherer")
+	if harvestBadShadow ~= nil then
+		addError(errors, "p7_harvest_requires_shadow_ok")
+	end
+	local harvestNilShadow = P7OutcomeSink.FromHarvest({
+		ok = true,
+		duplicate = false,
+		transactionId = "i6:harvest:nil-shadow",
+		receipt = { actorId = "i6-gatherer", sourceKind = "Tree", worldResourceType = "Wood" },
+	}, "i6-gatherer")
+	if harvestNilShadow ~= nil then
+		addError(errors, "p7_harvest_nil_shadow_rejected")
+	end
+
 	local harvestOutcome = sink:Ingest(P7OutcomeSink.FromHarvest({
 		ok = true,
 		duplicate = false,
@@ -265,7 +434,38 @@ function I6Verifier.Verify(deps, scope)
 		addError(errors, "p7_place_outcome")
 	end
 
-	if #grants < 3 then
+	-- P3 complete under outcome-only: sink BuildingCompleted is the sole grant authority
+	-- (SkillLearning skips builder_complete when P7_I6OutcomeOnly). One ingest → one grant.
+	local p3GrantsBefore = #grants
+	local p3Complete = sink:Ingest({
+		eventName = "BuildingCompleted",
+		kind = "building_completed",
+		transactionId = "p3:complete:Shelter",
+		actorId = "i6-builder",
+	})
+	local p3Dup = sink:Ingest({
+		eventName = "BuildingCompleted",
+		kind = "building_completed",
+		transactionId = "p3:complete:Shelter",
+		actorId = "i6-builder",
+	})
+	if not p3Complete or not p3Complete.ok or (p3Complete.granted or 0) <= 0 then
+		addError(errors, "p7_p3_complete_grant_once")
+	end
+	if not p3Dup or p3Dup.duplicate ~= true or (p3Dup.granted or 0) ~= 0 then
+		addError(errors, "p7_p3_complete_dedupe")
+	end
+	local p3GrantCount = 0
+	for i = p3GrantsBefore + 1, #grants do
+		if grants[i].eventId == "p3:complete:Shelter" then
+			p3GrantCount += 1
+		end
+	end
+	if p3GrantCount ~= 1 then
+		addError(errors, "p7_p3_complete_single_authority")
+	end
+
+	if #grants < 4 then
 		addError(errors, "p7_grant_count")
 	end
 
@@ -289,6 +489,30 @@ function I6Verifier.Verify(deps, scope)
 		if i5 ~= nil and i5 ~= "PASS" then
 			addError(errors, "i5_regressed")
 		end
+
+		-- Station outcome wiring (compose sets attr; may still be pending if defer not run).
+		local i6Scope = root:FindFirstChild("I6ProfessionIntegration") or scope
+		if i6Scope and i6Scope:GetAttribute("I6WiredStationOutcome") == false
+			and i6Scope:GetAttribute("I6StationOutcomeSkipReason") == nil
+		then
+			addError(errors, "station_outcome_unwired_undocumented")
+		end
+	end
+
+	-- Assert live S4 registry was not globally wiped.
+	if not InventoryRegistry.Has(liveSentinel) then
+		addError(errors, "verifier_must_not_global_reset_s4")
+	end
+	if not hadSentinel then
+		InventoryRegistry.Reset(liveSentinel)
+	end
+
+	-- Do not leave seeded i6-* actors in the live registry.
+	cleanupVerifierActors()
+	for _, actorId in ipairs(VERIFY_ACTORS) do
+		if InventoryRegistry.Has(actorId) then
+			addError(errors, "verifier_left_seeded_actor:" .. actorId)
+		end
 	end
 
 	local status = #errors == 0 and "PASS" or "ERROR"
@@ -300,6 +524,8 @@ function I6Verifier.Verify(deps, scope)
 		scope:SetAttribute("I6AdapterVersion", ProfessionAdapter.Version)
 		scope:SetAttribute("I6WritesRoleSkillGoal", ProfessionAdapter.WritesRoleSkillGoal())
 		scope:SetAttribute("I6WithdrawsWorld", ProfessionAdapter.WithdrawsWorldResources())
+		scope:SetAttribute("I6IsolatedVerifierInventories", true)
+		scope:SetAttribute("I6DualBuildingTruth", true)
 		local stats = sink:GetStats()
 		scope:SetAttribute("I6OutcomeGranted", stats.granted)
 		scope:SetAttribute("I6OutcomeDuplicates", stats.duplicates)
