@@ -136,7 +136,21 @@ end
 function BuildingLifecycleService.PlaceRoot(pieceType, requestedPosition, yawDegrees, metadata)
     local current = BuildingLifecycleService.Start()
     local piece, reason = ModularBuildingService.PlaceRoot(pieceType, requestedPosition, yawDegrees, metadata)
-    if piece then initializePlacedPiece(current, piece, metadata) end
+    if piece then
+        initializePlacedPiece(current, piece, metadata)
+        -- I6: re-emit with transactionId/actorId so P7 outcome sink can dedupe.
+        emit(current, "building.piece.placed", {
+            pieceId = piece.id,
+            pieceType = piece.pieceType,
+            root = true,
+            stability = piece.stability,
+            transactionId = metadata and metadata.transactionId or nil,
+            actorId = metadata and metadata.actorId or nil,
+            itemId = metadata and metadata.itemId or nil,
+            materialGrade = metadata and metadata.materialGrade or piece.materialGrade,
+            source = metadata and metadata.source or nil,
+        })
+    end
     publishStats(current, "place_root", reason or "ok")
     return piece, reason
 end
@@ -155,7 +169,22 @@ function BuildingLifecycleService.PlaceSnap(pieceType, parentId, parentSocketNam
         attachmentName,
         metadata
     )
-    if piece then initializePlacedPiece(current, piece, metadata) end
+    if piece then
+        initializePlacedPiece(current, piece, metadata)
+        emit(current, "building.piece.placed", {
+            pieceId = piece.id,
+            pieceType = piece.pieceType,
+            parentId = parentId,
+            parentSocket = parentSocketName,
+            root = false,
+            stability = piece.stability,
+            transactionId = metadata and metadata.transactionId or nil,
+            actorId = metadata and metadata.actorId or nil,
+            itemId = metadata and metadata.itemId or nil,
+            materialGrade = metadata and metadata.materialGrade or piece.materialGrade,
+            source = metadata and metadata.source or nil,
+        })
+    end
     publishStats(current, "place_snap", reason or "ok")
     return piece, reason
 end

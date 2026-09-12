@@ -14,6 +14,8 @@ local Construction = require(script.Parent.Construction)
 local Planner = require(script.Parent.Planner)
 local Needs = require(script.Parent.Needs)
 local InventoryShadow = require(script.Parent.SurvivalCrafting.Adapter.InventoryShadow)
+local ProfessionAdapter = require(script.Parent.SurvivalCrafting.Adapter.ProfessionAdapter)
+local P7OutcomeSink = require(script.Parent.SurvivalCrafting.Adapter.P7OutcomeSink)
 
 local BrainIntegrated = {}
 local runningAgents = setmetatable({}, { __mode = "k" })
@@ -187,6 +189,39 @@ local function nextI3Tx(state, kind, resourceType)
         state.tick,
         state.i3TxSeq
     )
+end
+
+
+local function i6Api()
+    local parent = game:GetService("ServerScriptService"):FindFirstChild("AstraSurvivalCrafting")
+    return parent and parent:FindFirstChild("I6ProfessionApi")
+end
+
+local function i6NotifyOutcome(payload)
+    local api = i6Api()
+    if api then
+        local ok = pcall(function()
+            api:Invoke("IngestOutcome", payload)
+        end)
+        if ok then return end
+    end
+end
+
+local function i6HarvestOpts(state, resourceType)
+    local ctx = ProfessionAdapter.HarvestContext(resourceType, state.agent.Name)
+    if not ctx then
+        return nil
+    end
+    debug(state.agent, "I6GatherSourceKind", ctx.sourceKind or "None")
+    debug(state.agent, "I6GatherToolClass", ctx.toolClass or "None")
+    debug(state.agent, "I6GatherToolTier", ctx.toolTier or 0)
+    state.folders.state:SetAttribute("I6_GatherQuoteObserved", true)
+    return {
+        sourceKind = ctx.sourceKind,
+        context = ctx.context,
+        toolClass = ctx.toolClass,
+        toolTier = ctx.toolTier,
+    }
 end
 
 local function addWorldProvenance(state, resourceType, amount)
@@ -477,13 +512,18 @@ local function gatherFromLivingWorld(state)
     local atSource, nav = w6Navigate(state, resourceType, "Living World → กำลังไปเก็บ " .. resourceType)
     if not atSource then return nav and nav.ok == true end
 
+    local harvestOpts = nil
+    if ProfessionAdapter.IsActionAllowed(state.role, "HarvestQuote") then
+        harvestOpts = i6HarvestOpts(state, resourceType)
+    end
     local tx = state.worldBridge.HarvestToInventory(
         state.agent.Name,
         state.inventory,
         state.root.Position,
         resourceType,
         1,
-        w6TransactionId(state, "harvest", resourceType)
+        w6TransactionId(state, "harvest", resourceType),
+        harvestOpts
     )
     if tx.ok and not tx.duplicate then
         addWorldProvenance(state, resourceType, tx.actual)
@@ -500,6 +540,12 @@ local function gatherFromLivingWorld(state)
             debug(state.agent, "I3ShadowError", tostring(tx.shadowError))
         end
         debug(state.agent, "W6LastTransaction", tx.transactionId)
+        -- I6: P7 outcome on harvest committed only (not navigation / failed attempts).
+        local harvestOutcome = P7OutcomeSink.FromHarvest(tx, state.agent.Name)
+        if harvestOutcome then
+            i6NotifyOutcome(harvestOutcome)
+            state.folders.state:SetAttribute("I6_HarvestOutcomeObserved", true)
+        end
         remember(state, "resource_carried", {
             sourceType = "living_world",
             resourceType = resourceType,
@@ -507,6 +553,7 @@ local function gatherFromLivingWorld(state)
             transactionId = tx.transactionId,
             position = state.root.Position,
             i3Shadowed = tx.shadow ~= nil and tx.shadow.ok == true,
+            i6ToolClass = harvestOpts and harvestOpts.toolClass or nil,
         }, 0.95)
         return true
     end
@@ -811,8 +858,78 @@ local function executeWaitFor(state, resourceType)
     think(state, "รอ " .. resourceType .. " ที่คลัง")
 end
 
+local function executeBuildViaB1(state)
+    if not ProfessionAdapter.IsActionAllowed(state.role, "B1Place") then
+        return false
+    end
+    local part = ProfessionAdapter.PickPlaceableBuildPart(state.agent.Name)
+    if not part then
+        return false
+    end
+
+    local buildingFolder = game:GetService("ServerScriptService"):FindFirstChild("AstraBuilding")
+    if not buildingFolder then
+        return false
+    end
+    local okRequire, BuildingLifecycleService = pcall(function()
+        return require(buildingFolder:FindFirstChild("BuildingLifecycleService"))
+    end)
+    if not okRequire or not BuildingLifecycleService then
+        return false
+    end
+
+    -- Place near the agent using shared SurfaceResolver path inside B1 Preview/Place (W5 gated).
+    local target = state.root.Position + Vector3.new(6, 0, 0)
+    state.i6BuildTxSeq = (state.i6BuildTxSeq or 0) + 1
+    local transactionId = string.format(
+        "i6:place:%s:%s:%d:%d",
+        state.agent.Name,
+        part.itemId,
+        state.tick,
+        state.i6BuildTxSeq
+    )
+
+    think(state, "I5 B1 → วาง " .. part.itemId)
+    local placed, reason = ProfessionAdapter.PlaceCraftedPart(BuildingLifecycleService, {
+        actorId = state.agent.Name,
+        itemId = part.itemId,
+        position = target,
+        yawDegrees = 0,
+        transactionId = transactionId,
+    })
+    if placed and placed.ok then
+        state.folders.state:SetAttribute("I6_BuilderB1PlaceObserved", true)
+        state.folders.state:SetAttribute("I5_BuilderUsesB1", true)
+        debug(state.agent, "I6LastBuildPiece", placed.pieceId)
+        local outcome = P7OutcomeSink.FromBuilding(placed)
+        if outcome then
+            i6NotifyOutcome(outcome)
+        end
+        remember(state, "structure_built", {
+            sourceType = "b1_place",
+            pieceId = placed.pieceId,
+            pieceType = placed.pieceType,
+            itemId = part.itemId,
+            transactionId = transactionId,
+            position = target,
+        }, 1.0)
+        return true
+    end
+
+    debug(state.agent, "I6BuildPlaceReason", tostring(reason or "place_failed"))
+    -- If preview rejected (W5 wet/steep), try compatibility Construction path.
+    return false
+end
+
 local function executeBuild(state)
     if state.role ~= Config.Roles.Builder then return end
+
+    -- I6: prefer I5 B1 placement when crafted S4 build parts exist.
+    if executeBuildViaB1(state) then
+        return
+    end
+
+    -- Compatibility: legacy P3 Construction.lua sites (not new S/B authority).
     local active = Construction.GetActive()
     if not active then
         local blueprint = Construction.GetNextBlueprint(state.folders, Config)
@@ -833,6 +950,13 @@ local function executeBuild(state)
             blueprint = active.blueprint.id,
             position = active.position,
         }, 1.0)
+        -- Outcome for legacy completion (deduped by blueprint id).
+        i6NotifyOutcome({
+            eventName = "BuildingCompleted",
+            kind = "building_completed",
+            transactionId = "p3:complete:" .. tostring(active.blueprint.id),
+            actorId = state.agent.Name,
+        })
     elseif status == "too_far" and typeof(detail) == "Vector3" then
         pathMove(state, detail)
     end

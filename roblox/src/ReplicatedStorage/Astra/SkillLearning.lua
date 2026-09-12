@@ -135,6 +135,21 @@ local function grant(agent, skill, amount, category, eventId, tick, config, worl
     return reward
 end
 
+
+-- I6: external outcome-event XP entry (harvest committed / craft completed / B1 place-repair).
+-- Dedup is enforced by callers via transactionId → eventId. Does not grant on Start/Step/pending.
+function SkillLearning.GrantOutcome(agent, skill, amount, category, eventId, tick, config, worldState)
+    if not agent or not agent:IsA("Model") then return 0 end
+    if type(skill) ~= "string" or skill == "" then return 0 end
+    ensureProfile(agent, config)
+    local rewarded = grant(agent, skill, amount or 0, category or "i6_outcome", eventId, tick or 0, config, worldState)
+    applyEffects(agent, config)
+    if worldState then
+        worldState:SetAttribute("P7_I6GrantObserved", true)
+    end
+    return rewarded
+end
+
 local function processAgent(agent, folders, tick, config)
     if not agent:IsA("Model") then return end
 
@@ -161,12 +176,15 @@ local function processAgent(agent, folders, tick, config)
     end
 
     local carry = agent:GetAttribute("CarryTotal") or 0
-    if carry > snap.carry then
-        grant(agent, "Gatherer", (carry - snap.carry) * (config.P7GatherCollectXP or 1.6), "gather_collect", nil, tick, config, state)
-    elseif carry < snap.carry then
-        local goal = agent:GetAttribute("Goal") or ""
-        if goal == "DepositResources" or goal == "DeliverMaterials" then
-            grant(agent, "Gatherer", (snap.carry - carry) * (config.P7GatherDepositXP or 1.2), "gather_delivery", nil, tick, config, state)
+    local i6OutcomeOnly = state:GetAttribute("P7_I6OutcomeOnly") == true
+    if not i6OutcomeOnly then
+        if carry > snap.carry then
+            grant(agent, "Gatherer", (carry - snap.carry) * (config.P7GatherCollectXP or 1.6), "gather_collect", nil, tick, config, state)
+        elseif carry < snap.carry then
+            local goal = agent:GetAttribute("Goal") or ""
+            if goal == "DepositResources" or goal == "DeliverMaterials" then
+                grant(agent, "Gatherer", (snap.carry - carry) * (config.P7GatherDepositXP or 1.2), "gather_delivery", nil, tick, config, state)
+            end
         end
     end
 
@@ -217,7 +235,8 @@ local function processBuildOutcome(folders, tick, config)
         if workerName and workerName ~= "None" then buildSnapshot.worker = workerName end
     end
 
-    if progress > buildSnapshot.progress then
+    -- I6: no XP for in-progress / queued construction ticks when outcome-only mode is active.
+    if progress > buildSnapshot.progress and state:GetAttribute("P7_I6OutcomeOnly") ~= true then
         local worker = workerName and workerName ~= "None" and folders.agents:FindFirstChild(workerName)
         if not worker and buildSnapshot.worker then worker = folders.agents:FindFirstChild(buildSnapshot.worker) end
         if worker then

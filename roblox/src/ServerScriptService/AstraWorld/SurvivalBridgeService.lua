@@ -414,7 +414,7 @@ function SurvivalBridgeService.TryDrink(actorKey, position, transactionId)
     return tx
 end
 
-function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position, resourceType, amount, transactionId)
+function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position, resourceType, amount, transactionId, opts)
     local current = SurvivalBridgeService.Start()
     local grid = current.runtime.grid
     local x, z = grid:WorldToCell(position)
@@ -429,7 +429,20 @@ function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position,
     if tx.ok and not tx.duplicate then
         -- I3: committed W6 withdrawal → WorldGatherReceipt → Convert → S4, then
         -- project LivingWorld units onto legacy Carry_*. Eat/Drink are not shadowed.
-        local context = resourceType == "Food" and { source = "forage" } or {}
+        -- I6: Gatherer may supply S2 sourceKind + S3 toolClass/tier via opts (quote-only).
+        opts = type(opts) == "table" and opts or {}
+        local context = opts.context
+        if context == nil then
+            context = resourceType == "Food" and { source = "forage" } or {}
+        end
+        local toolClass = opts.toolClass
+        if type(toolClass) ~= "string" or toolClass == "" then
+            toolClass = resourceType == "Wood" and "axe" or "hand"
+        end
+        local toolTier = opts.toolTier
+        if type(toolTier) ~= "number" then
+            toolTier = 0
+        end
         local shadow, shadowReason = InventoryShadow.ApplyCommittedHarvest({
             transactionId = tx.transactionId,
             actorId = tostring(actorKey),
@@ -438,8 +451,9 @@ function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position,
             worldResourceType = resourceType,
             actualWithdrawn = tx.actual,
             context = context,
-            toolClass = resourceType == "Wood" and "axe" or "hand",
-            toolTier = 0,
+            sourceKind = opts.sourceKind,
+            toolClass = toolClass,
+            toolTier = toolTier,
         })
         if shadow and shadow.ok then
             tx.shadow = shadow
@@ -458,7 +472,19 @@ function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position,
     elseif tx.ok and tx.duplicate then
         -- Idempotent W6 retry: re-apply shadow (also idempotent on transactionId)
         -- so S4/Carry stay aligned without duplicating.
-        local context = resourceType == "Food" and { source = "forage" } or {}
+        opts = type(opts) == "table" and opts or {}
+        local context = opts.context
+        if context == nil then
+            context = resourceType == "Food" and { source = "forage" } or {}
+        end
+        local toolClass = opts.toolClass
+        if type(toolClass) ~= "string" or toolClass == "" then
+            toolClass = resourceType == "Wood" and "axe" or "hand"
+        end
+        local toolTier = opts.toolTier
+        if type(toolTier) ~= "number" then
+            toolTier = 0
+        end
         if (tx.actual or 0) > 0 then
             InventoryShadow.ApplyCommittedHarvest({
                 transactionId = tx.transactionId,
@@ -468,8 +494,9 @@ function SurvivalBridgeService.HarvestToInventory(actorKey, inventory, position,
                 worldResourceType = resourceType,
                 actualWithdrawn = tx.actual,
                 context = context,
-                toolClass = resourceType == "Wood" and "axe" or "hand",
-                toolTier = 0,
+                sourceKind = opts.sourceKind,
+                toolClass = toolClass,
+                toolTier = toolTier,
             })
             if inventory then
                 InventoryShadow.EnsureLegacyProjection(tostring(actorKey), inventory)
