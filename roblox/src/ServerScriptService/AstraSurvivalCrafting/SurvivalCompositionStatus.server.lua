@@ -23,6 +23,7 @@ local SCOPE_BY_PHASE = {
 	I2 = "I2WorldItemAdapter",
 	I3 = "I3InventoryShadow",
 	I4 = "I4CraftingRuntime",
+	I5 = "I5BuildingCompose",
 }
 
 -- S0 reports on the root itself; every other phase owns one scope.
@@ -56,6 +57,17 @@ while true do
 	local root = compositionRoot()
 	local statuses = collectStatuses(root)
 
+	-- I5: B-series physical building authority must not ERROR/FAIL while composed.
+	local buildingState = Workspace:FindFirstChild("AstraBuildingState")
+	if buildingState then
+		local b1 = buildingState:GetAttribute("B1Status")
+		if b1 == "FAIL" or b1 == "ERROR" then
+			statuses.B1 = b1
+		elseif b1 == "PASS" and statuses.I5 == nil then
+			-- I5 verifier may still be booting; leave pending.
+		end
+	end
+
 	local failing = {}
 	local pending = {}
 	local passCount = 0
@@ -63,7 +75,7 @@ while true do
 		if status == "PASS" then
 			passCount += 1
 		elseif status == "FAIL" or status == "ERROR" then
-			-- I3: verifier ERROR must fail composition immediately (not sit in pending).
+			-- I3/I5: verifier ERROR must fail composition immediately (not sit in pending).
 			table.insert(failing, phase)
 		else
 			table.insert(pending, phase)
