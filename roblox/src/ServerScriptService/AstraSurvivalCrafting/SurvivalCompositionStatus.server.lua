@@ -24,6 +24,7 @@ local SCOPE_BY_PHASE = {
 	I3 = "I3InventoryShadow",
 	I4 = "I4CraftingRuntime",
 	I5 = "I5BuildingCompose",
+	I6 = "I6ProfessionIntegration",
 }
 
 -- S0 reports on the root itself; every other phase owns one scope.
@@ -75,7 +76,7 @@ while true do
 		if status == "PASS" then
 			passCount += 1
 		elseif status == "FAIL" or status == "ERROR" then
-			-- I3/I5: verifier ERROR must fail composition immediately (not sit in pending).
+			-- I3/I5/I6: verifier ERROR must fail composition immediately (not sit in pending).
 			table.insert(failing, phase)
 		else
 			table.insert(pending, phase)
