@@ -22,6 +22,7 @@ local SCOPE_BY_PHASE = {
 	S12 = "S12Durability",
 	I2 = "I2WorldItemAdapter",
 	I3 = "I3InventoryShadow",
+	I4 = "I4CraftingRuntime",
 }
 
 -- S0 reports on the root itself; every other phase owns one scope.
