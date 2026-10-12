@@ -1,0 +1,26 @@
+name: Nira Mirror R2.1 Regression
+on:
+  pull_request:
+    paths: ['nira/**', '.github/workflows/nira-mirror-ci.yml']
+  push:
+    branches: [main]
+    paths: ['nira/**', '.github/workflows/nira-mirror-ci.yml']
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nira
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check nira.js
+      - run: node --check world/nira/social-world.mjs
+      - run: node --test tests/nira-map-contract.test.mjs
+      - run: node tests/nira-living-world.test.mjs
+      - run: node tests/nira-social-world.test.mjs
+      - run: node --test tests/nira-r2-verification.test.mjs
