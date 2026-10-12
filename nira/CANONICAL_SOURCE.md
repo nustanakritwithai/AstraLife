@@ -1,3 +1,11 @@
-# Nira Atlas — public GitHub Pages mirror
+# Nira R1 — Public GitHub Pages Mirror
 
-This is a read-only presentation mirror hosted by AstraLife GitHub Pages. The canonical implementation and source data live at https://github.com/nustanakritwithai/Kingdom-sandbox/tree/main/world/nira. No original AstraLife runtime files were changed. This is not a running autonomous AI simulation.
+Canonical source and simulation logic: https://github.com/nustanakritwithai/Kingdom-sandbox/tree/main/world/nira
+
+Public mirror: https://nustanakritwithai.github.io/AstraLife/nira/
+
+**Current milestone: R1 browser-local simulation with 30 rule/utility AI NPCs.** This page supports local simulation while visible, trade journeys, work/rest/needs, NPC observer, and browser-local snapshots. It is **not** a continuously running backend, nor does it use remote LLM inference. Geometry is route graph schematic, not pixel collision tested.
+
+The Nira mirror stays under `/nira/`; the original AstraLife runtime under the repository root remains unchanged.
+
+Source changes are developed and tested in Kingdom-sandbox, then mirrored here for Pages deployment.
