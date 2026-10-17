@@ -1,0 +1,24 @@
+{
+  "name": "AstraLifeRoblox",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Astra": {
+        "$path": "src/ReplicatedStorage/Astra"
+      }
+    },
+    "ServerScriptService": {
+      "$path": "src/ServerScriptService"
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/StarterPlayer/StarterPlayerScripts"
+      }
+    },
+    "Workspace": {
+      "$properties": {
+        "StreamingEnabled": true
+      }
+    }
+  }
+}
