@@ -1,0 +1,11 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SurvivalCrafting = ReplicatedStorage.Astra.SurvivalCrafting
+local StateWriter = require(SurvivalCrafting.Core.StateWriter)
+local Profiles = require(SurvivalCrafting.S10.ContainerProfiles)
+local Container = require(SurvivalCrafting.S10.StationContainer)
+local Verifier = require(SurvivalCrafting.S10.S10Verifier)
+local scope = StateWriter.Scope("S10Containers")
+scope:SetAttribute("Version", "S10-1")
+scope:SetAttribute("OwnsRealStationInventory", false)
+scope:SetAttribute("SupportsInputFuelOutputBays", true)
+Verifier.Verify(Profiles, Container, scope)
